@@ -4,23 +4,15 @@
  */
 class Debug {
     public static $last_ttt;
-    public static $total_ttt = 0;
-    public static $print_mode = 'browser'; // browser(default), terminal
+    public static $total_ttt;
     public function __construct() {
+        self::$total_ttt = 0;
         return true;
     }
     private static function PrintR($arr, $color='Silver') {
-        switch(self::$print_mode) {
-            case 'browser':
-                echo '<pre><span style="color:'.$color.';">';
-                print_r($arr);
-                echo '</span></pre>';
-                break;
-            case 'terminal':
-                print_r($arr);
-                echo "\n";
-                break;
-        }
+        echo '<pre><span style="color:'.$color.';">';
+        print_r($arr);
+        echo '</span></pre>';
         return true;
     }
     public static function Error($ext) {
@@ -48,7 +40,7 @@ class Debug {
         self::$last_ttt = $current_ttt;
         self::$total_ttt += $interval;
         if ($title == 'total') {
-            $title = 'Total Server Time: '.number_format(self::$total_ttt, 6);
+            $title = 'Total Server Time: '.number_format(Debug::$total_ttt, 6);
         }
         self::PrintR(date('Y-m-d H:i:s').' ('.number_format($interval, 6).') '.$title, 'DeepSkyBlue');
 

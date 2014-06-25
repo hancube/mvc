@@ -90,66 +90,12 @@ Array
 </root>
 
 ###################################
-MVC_VERSION 3.1.0
+Differences between 3.0.0 and 3.1.0
 ###################################
 1. Added VERSION management for all features
     1) Added Version File
     2) Changed file names in lib
     3) Added Output version
-2. Added bind paremeter and logic in HCModel::query()
-3. removed setSLOD from addModel not to affect limit to submodel
-4. setSLOD()
-   when order value, database field name is not defined in the config field list, it's storing the value without replacing to the field name.
-   which means if it's not find the value as a field name in the model it's taking that value as a field name.
-
-###################################
-MVC_VERSION 3.1.1
-###################################
-1. Assign args['v'] to filename (hc_controller.php 274 Line)
-        if (isset($this->args['v']) && !empty($this->args['v'])) {
-            $filename = $this->args['v'];
-        }
-2. upgrade output version (lib/version.php 15 Line)
-    case '3.1.1':
-3. added in array into update to (same as select())
-        (hc_model.php 313 Line)
-        if (isset($options['where'])) {
-            for ($i=0; $i<count($options['where']); $i++) {
-                $where .= ' '.$options['where'][$i][0];
-                $where .= ' '.$options['where'][$i][1].'';
-                $where .= ' '.$options['where'][$i][2];
-                if (is_array($options['where'][$i][3])) {
-                    $where .= ' (';
-                    for ($ii=0; $ii<count($options['where'][$i][3]); $ii++) {
-                        $where .= ' :w'.$i.'a'.$ii.',';
-                    }
-                    $where = substr($where, 0, -1);
-                    $where .= ') ';
-                }else {
-                    $where .= ' :w'.$i;
-                }
-            }
-        }
-        (hc_model.php 345 Line)
-                if (isset($options['where'])) {
-                    for ($i=0; $i<count($options['where']); $i++) {
-                        if (is_array($options['where'][$i][3])) {
-                            for ($ii=0; $ii<count($options['where'][$i][3]); $ii++) {
-                                if (strtoupper($options['where'][$i][3][$ii]) == 'NULL') $options['where'][$i][3][$ii] = NULL;
-                                $stmt->bindParam(':w'.$i.'a'.$ii, $options['where'][$i][3][$ii]);
-                                Debug::ppp(':w'.$i.'a'.$ii.', '.$options['where'][$i][3][$ii]);
-                            }
-                        }else {
-                            if (strtoupper($options['where'][$i][3]) == 'NULL') $options['where'][$i][3] = NULL;
-                            $stmt->bindParam(':w'.$i, $options['where'][$i][3]);
-                            Debug::ppp(':w'.$i.', '.$options['where'][$i][3]);
-                        }
-                    }
-                }
-###################
-DEBUG_VERSION 1.1.0
-###################
-1. print_mode added
 
 ############
 Version Rule

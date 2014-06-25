@@ -30,9 +30,7 @@ class Validate {
 
             /* Rules */
             case 'numeric':
-                if (strtoupper($value) == 'NULL') {
-                    // NULL Pass
-                }else if (isset($value) && !empty($value) && !is_numeric($value)) {
+                if (isset($value) && !empty($value) && !is_numeric($value)) {
                     $return['result'] = FALSE;
                     $return['error'] = 'ERROR_NUMERIC';
                 }

@@ -33,7 +33,6 @@ class String {
                 $subnode = $xml->addChild("$key");
                 String::ArrayToXMLAddChild($value, $subnode);
             } else {
-                $value = str_replace('&','&amp;',$value);
                 $xml->addChild($key, $value);
             }
         }

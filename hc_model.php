@@ -42,7 +42,7 @@
 
 /**
  * Config Item
- * 
+ *
  * 'key' => array (
  *          'field'        => 'dollar',    // if it's empty, it's not a database field
  *          'operator'     => '='          // =(equal), %~(like '%~'), ~%(like '~%'), %~%(like '%~%')
@@ -67,7 +67,7 @@
  *          error       => 'ERROR_CODE',
  *          where       => TRUE         // if it's true, and there is value in config, then add where condition in query using operator
  *          )
-        )
+)
  */
 
 class HCModel{
@@ -99,12 +99,13 @@ class HCModel{
     public function setValues(& $args) {
         Debug::ttt('HCModel::setValues()');
         if (!isset($this->config) || !is_array($this->config)) return false;
-        
+
         foreach ($this->config as $key => $val){
             if (isset($args[$key])) {
                 $this->config[$key]['value'] = $args[$key];
             }
         }
+        Debug::ppp($this->config);
         return true;
     }
     public function mergeConfig() {
@@ -122,25 +123,25 @@ class HCModel{
     }
     public function insert($options = array()) {
         Debug::ttt('HCModel::insert()');
-      /*
-        * $options = array (
-        *      'table' => 'table1'
-        *      'id' => 'field1'
-        *      'fields' => array(
-        *          'field1' => 'value1',
-        *          'field1' => 'value1',
-        *          'field1' => 'value1'
-        *      )
-        * );
+        /*
+           $options = array (
+                'table' => 'table1',
+                'id' => 'field1',
+                'fields' => array(
+                    'field1' => 'value1',
+                    'field1' => 'value1',
+                    'field1' => 'value1'
+                )
+           );
         */
 
         // Set Default Options
-        if (!isset($options['table']) 
+        if (!isset($options['table'])
             || (isset($options['table']) && empty($options['table']))) {
             $options['table'] = $this->table;
         }
-        
-        if (!isset($options['fields']) 
+
+        if (!isset($options['fields'])
             || (isset($options['fields']) && count($options['fields'])) <= 0) {
             foreach ($this->config as $key => $item) {
                 if (isset($item['pk']) && $item['pk'] === true && isset($item['autoinc']) && $item['autoinc'] === true) {
@@ -165,7 +166,7 @@ class HCModel{
         $values = '';
         $values_memcache = '';
         foreach ($options['fields'] as $field => $value) {
-            $fields .= ''.$field.',';
+            $fields .= $field.',';
             $values .= ':'.$field.',';
             $values_memcache .= '"'.$value.'",';
         }
@@ -181,7 +182,6 @@ class HCModel{
         try {
             $stmt = $this->db->prepare($query);
             foreach ($options['fields'] as $field => $value) {
-                if (strtoupper($options['fields'][$field]) == 'NULL') $options['fields'][$field] = NULL;
                 $stmt->bindParam(':'.$field, $options['fields'][$field]);
                 Debug::ppp(':'.$field.', '.$options['fields'][$field]);
 
@@ -281,26 +281,26 @@ class HCModel{
         }
 
         if (!isset($options['where'])
-            || isset($options['where']) 
+            || isset($options['where'])
             && count($options['where']) <= 0) {
             return 'ERROR_DB_NO_CONDITION';
         }
-        
-        if (!isset($options['table']) 
-            || isset($options['table']) 
+
+        if (!isset($options['table'])
+            || isset($options['table'])
             && empty($options['table'])) {
             $options['table'] = $this->table;
         }
-        
-        if (!isset($options['fields']) 
-            || isset($options['fields']) 
+
+        if (!isset($options['fields'])
+            || isset($options['fields'])
             && count($options['fields']) <= 0) {
             foreach ($this->config as $key => $item) {
                 if (isset($item['pk']) && $item['pk'] === true) continue;
                 if (isset($item['field']) && isset($item['value'])) {
                     $options['fields'][$item['field']] = $item['value'];
                 }
-            }  
+            }
         }
 
         $set = '';
@@ -371,17 +371,17 @@ class HCModel{
     }
     public function delete($options = array()) {
         Debug::ttt('HCModel::delete()');
-      /*
-         * $options = array (
-         *      'table' => 'table1'
-         *      'where' = array (
-         *          array ('where','field1','=','value1'),
-         *          array ('and','field1','=','value1'),
-         *          array ('or','field1','=','value1')
-         *      )
-         * );
-         *                                  
-         */
+        /*
+            $options = array (
+                 'table' => 'table1',
+                 'where' => array (
+                     array ('where','field1','=','value1'),
+                     array ('and','field1','=','value1'),
+                     array ('or','field1','=','value1')
+                 )
+            );
+
+        */
 
         if (!isset($options['where'])
             || isset($options['where'])
@@ -394,13 +394,7 @@ class HCModel{
             foreach ($config as $item) {
                 if (isset($item['where']) && $item['where'] === true
                     && isset($item['value']) && !empty($item['value'])) {
-                    if (!isset($item['operator'])) {
-                        if (strtoupper($item['value']) == 'NULL') {
-                            $item['operator'] = 'is';
-                        }else {
-                            $item['operator'] = '=';
-                        }
-                    }
+                    if (!isset($item['operator'])) $item['operator'] = '=';
                     $tmp = array($conn, $item['field'], $item['operator'], $item['value']);
                     $tmp = $this->switchOperator($tmp);
                     $options['where'][] = $tmp;
@@ -415,35 +409,35 @@ class HCModel{
             return 'ERROR_DB_NO_CONDITION';
         }
 
-        if (!isset($options['table']) 
-            || isset($options['table']) 
+        if (!isset($options['table'])
+            || isset($options['table'])
             && empty($options['table'])) {
             $options['table'] = $this->table;
         }
-        
+
         $where = '';
         if (isset($options['where'])) {
             for ($i=0; $i<count($options['where']); $i++) {
-                $where .= ' '.$options['where'][$i][0].'';
+                $where .= ' '.$options['where'][$i][0];
                 $where .= ' '.$options['where'][$i][1];
-                $where .= ' '.$options['where'][$i][2].'';
+                $where .= ' '.$options['where'][$i][2];
                 $where .= ' :w'.$i;
             }
         }
-        
+
         $query = 'delete from '.$options['table'].' '.$where;
         Debug::ppp($query);
         Debug::ppp($options);
-        
+
         try {
             $stmt = $this->db->prepare($query);
             for ($i=0; $i<count($options['where']); $i++) {
                 if (strtoupper($options['where'][$i][3]) == 'NULL') $options['where'][$i][3] = NULL;
-                $stmt->bindParam(':w'.$i, $options['where'][$i][3]);  
+                $stmt->bindParam(':w'.$i, $options['where'][$i][3]);
                 Debug::ppp(':w'.$i.', '.$options['where'][$i][3]);
             }
             $stmt->execute();
-            
+
             if($stmt->rowCount() <= 0) {
                 return 'ERROR_DB_NO_AFFECTED';
             }
@@ -452,7 +446,7 @@ class HCModel{
             return 'ERROR_DB_DELETE';
         }
 
-        return true;        
+        return true;
     }
 
     public function isSetVal($config_key) {
@@ -600,7 +594,7 @@ class HCModel{
             if (!isset($this->direction)) $this->direction = 'ASC';
             $order = ' order by '.$this->orderby.' '.$this->direction;
         }
-        
+
         $limit = '';
         if (isset($this->start) && isset($this->limit)) {
             $limit = ' limit '.$this->start.', '.$this->limit;
@@ -703,14 +697,14 @@ class HCModel{
         return true;
     }
 
-    public function query($query = '', $bind = array()) {
+    public function query($query = '') {
         Debug::ttt('HCModel::query()');
         if (empty($query)) return false;
 
         Debug::ppp($query);
         try {
             $stmt = $this->db->prepare($query);
-            if (count($bind) > 0) {
+            if (isset($bind) && count($bind) > 0) {
                 foreach ($bind as $key => $val) {
                     if (strtoupper($$val) == 'NULL') $val = NULL;
                     $stmt->bindParam($key, $val);
@@ -724,7 +718,7 @@ class HCModel{
                 case '1.0.0':
                     $this->data = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     break;
-                case '2.0.0':
+                    default:
                     $this->data['items'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     break;
             }
@@ -748,6 +742,26 @@ class HCModel{
         }
 
         return true;
+    }
+    public function get_search_fields($prefix = '') {
+        Debug::ttt('HCModel::get_search_fields()');
+
+        $arr_search_fields = array();
+        foreach ($this->schema as $key => $val) {
+
+            if (isset($val['search']) && $val['search'] === true) {
+                if (isset($prefix) && !empty($prefix)) {
+                    $arr_search_fields[] = $prefix.$key;
+                }else {
+                    $arr_search_fields[] = $key;
+                }
+            }
+        }
+        $arr_search_fields[] = $prefix.'l';
+        $arr_search_fields[] = $prefix.'s';
+        $arr_search_fields[] = $prefix.'p';
+        Debug::ppp($arr_search_fields);
+        return $arr_search_fields;
     }
 }
 ?>
