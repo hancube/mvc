@@ -6,7 +6,7 @@ class SampleModel extends Model{
     public $schema = array(
         'id' => array (
             'field'     => 'Id',
-            'where'     => WHERE_SELECT_UPDATE_DELETE,
+            'where'     => TRUE,
             'pk'        => TRUE,
             'rules'     => array (
                 'numeric'    => TRUE,

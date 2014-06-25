@@ -89,14 +89,6 @@ Array
    </data>
 </root>
 
-###################################
-Differences between 3.0.0 and 3.1.0
-###################################
-1. Added VERSION management for all features
-    1) Added Version File
-    2) Changed file names in lib
-    3) Added Output version
-
 ############
 Version Rule
 ############

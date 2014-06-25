@@ -1,11 +1,17 @@
 <?php
-    define('MVC_VERSION', '3.2.0');
-    define('MVC_CODE_VERSION', '3.2.0');
+    define('MVC_VERSION', '3.2.1');
+    define('MVC_CODE_VERSION', '3.2.1');
+    define('API_FOLDER', 'api');
 
     // Whitelists
     define ('USE_WHITELIST', false);
     $WHITELIST = array(
         'alloweddomain.com'
+    );
+    // Allowed IPs
+    define ('USE_ALLOWED_IP', true);
+    $ALLOWED_IPS = array(
+        '1.*.*.*'
     );
 
     // Domain
@@ -42,12 +48,12 @@
     define ('LANG', 'en');
 
     // Path
-    $folder = getcwd();
-    $folder = str_replace($_SERVER['DOCUMENT_ROOT'], '', $folder);
     if (!defined('ROOT')) {
-        define ('ROOT', $_SERVER['DOCUMENT_ROOT'].$folder);
+        define ('ROOT', $_SERVER['DOCUMENT_ROOT'].'/'.API_FOLDER);
     }
-    define ('HOME', 'http://'.DOMAIN.$folder);
+    if (!defined('HOME')) {
+        define ('HOME', 'http://'.DOMAIN.'/'.API_FOLDER);
+    }
     define ('LIB', ROOT.'/');
     define ('VENDORS', $_SERVER['DOCUMENT_ROOT'].'/vendors');
     define ('MVC_LIB', VENDORS.'/hancube/mvc-'.MVC_CODE_VERSION);
