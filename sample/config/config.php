@@ -58,6 +58,7 @@
     define ('VENDORS', $_SERVER['DOCUMENT_ROOT'].'/vendors');
     define ('MVC_LIB', VENDORS.'/hancube/mvc-'.MVC_CODE_VERSION);
     define ('TMP_PATH', '/tmp');
+    define ('CURR_URL', 'http://'.$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI']);
 
     // Database
     switch (SERVICE) {
