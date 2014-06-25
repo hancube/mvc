@@ -1,5 +1,7 @@
 <?php
-
+/**
+ * @author HanCube.com
+ */
 class String {
     public static function HtmlToTxt($html){
         if (is_array($html)) return $html;

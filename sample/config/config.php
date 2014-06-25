@@ -1,11 +1,10 @@
 <?php
-    define('MVC_VERSION', '3.0.0');
-    define('MVC_CODE_VERSION', '3.0.0');
+    define('MVC_VERSION', '2.1.8');
 
     // Whitelists
     define ('USE_WHITELIST', false);
     $WHITELIST = array(
-        'alloweddomain.com'
+        'hancube.com'
     );
 
     // Domain
@@ -50,21 +49,21 @@
     define ('HOME', 'http://'.DOMAIN.$folder);
     define ('LIB', ROOT.'/');
     define ('VENDORS', $_SERVER['DOCUMENT_ROOT'].'/vendors');
-    define ('MVC_LIB', VENDORS.'/hancube/mvc-'.MVC_CODE_VERSION);
+    define ('MVC_LIB', VENDORS.'/hancube/'.MVC_VERSION);
     define ('TMP_PATH', '/tmp');
 
     // Database
     switch (SERVICE) {
         case SERVICE_SANDBOX:
             define ('DB_HOST', '');
-            define ('DB_PORT', '3306');
+            define ('DB_PORT', '');
             define ('DB_NAME', '');
             define ('DB_USER', '');
             define ('DB_PASS', '');
             break;
         default :
             define ('DB_HOST', '');
-            define ('DB_PORT', '3306');
+            define ('DB_PORT', '');
             define ('DB_NAME', '');
             define ('DB_USER', '');
             define ('DB_PASS', '');

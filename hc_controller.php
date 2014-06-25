@@ -39,12 +39,11 @@
  * See:  http://www.opensource.org/licenses/bsd-license.php
  */
 
-require_once (MVC_LIB.'/lib/version.php');
-require_once (MVC_LIB.'/lib/debug.php');
-require_once (MVC_LIB.'/lib/db.php');
-require_once (MVC_LIB.'/lib/string.php');
-require_once (MVC_LIB.'/lib/web.php');
-require_once (MVC_LIB.'/lib/validate.php');
+require_once (MVC_LIB.'/lib/debug-1.0.0.php');
+require_once (MVC_LIB.'/lib/db-1.0.0.php');
+require_once (MVC_LIB.'/lib/string-1.0.0.php');
+require_once (MVC_LIB.'/lib/web-1.0.0.php');
+require_once (MVC_LIB.'/lib/validate-1.0.0.php');
 
 class HCController{
     public $args = array(
@@ -54,7 +53,6 @@ class HCController{
         'v'=>'',    // view file name
         'cb'=>'',   // callback
         's'=>'',    // start
-        'p'=>'',    // page
         'l'=>'',    // limit
         'o'=>'',    // order by
         'd'=>''     // direction
@@ -79,10 +77,7 @@ class HCController{
     public function run() {
         Debug::ttt('HCController::run()');
 
-        if (!$this->setDB()) {
-            $this->Error('DB_ERRORS', 'ERROR_DB_CONNECTION');
-            return false;
-        }
+        $this->setDB();
         if (USE_MEMCACHE === true) $this->setMemcache();
         $this->setMessages();
         $this->setModel();
@@ -102,15 +97,7 @@ class HCController{
         foreach ($this->args as $key => $val) {
             $this->args[$key] = String::HtmlToTxt($val);
         }
-        if (isset($this->args['p']) && !isset($this->args['s'])) {
-            $this->args['s'] = $this->args['p']*$this->args['l']-$this->args['l'];
-        }else if (!isset($this->args['p']) && isset($this->args['s'])) {
-            if ($this->args['s'] == 0) {
-                $this->args['p'] = 1;
-            } else {
-                $this->args['p'] = floor($this->args['s']/$this->args['l']) + 1;
-            }
-        }
+
         $this->controller = $this->args['c'];
         $this->action = $this->args['a'];
         return true;
@@ -127,12 +114,6 @@ class HCController{
             Debug::Error($e);
             return false;
         }
-        $this->db->host = '';
-        $this->db->port = '';
-        $this->db->name = '';
-        $this->db->user = '';
-        $this->db->pass = '';
-
         return true;
     }
     public function setMemcache() {
@@ -186,6 +167,7 @@ class HCController{
 
         $model->db = & $this->db;
         $model->memcache = & $this->memcache;
+        $this->setSLOD($this->args, $model);
         return $model;
     }
 
@@ -194,12 +176,9 @@ class HCController{
         if (isset($args['s']) && !empty($args['s'])) $model->start = $args['s'];
         if (isset($args['l']) && !empty($args['l'])) $model->limit = $args['l'];
         if (isset($args['o']) && !empty($args['o'])
-            && isset($model->schema[$args['o']])) {
-            if (isset($model->schema[$args['o']]['field']) && !empty($model->schema[$args['o']]['field'])) {
-                $model->orderby = $model->schema[$args['o']]['field'];
-            }else {
-                $model->orderby = $args['o'];
-            }
+            && isset($model->schema[$args['o']]) 
+            && isset($model->schema[$args['o']]['field'])) {
+            $model->orderby = $model->schema[$args['o']]['field'];
         }
         if (isset($args['d']) && !empty($args['d'])) $model->direction = $args['d'];
 
@@ -285,13 +264,10 @@ class HCController{
     public function Render($filename = '') {
         Debug::ttt('HCController::Render('.$filename.')');
 
-        if (isset($this->args['v']) && !empty($this->args['v'])) {
-            $filename = $this->args['v'];
-        }
-        if (OUTPUT_VERSION >= '2.0.0') {
+        $this->beforeRender();
+        if (MVC_VERSION == '3.0.0') {
             $this->returnArgs();
         }
-        $this->beforeRender();
         $this->staticRender($this->output, $filename);
         $this->afterRender();
         return true;
@@ -301,44 +277,17 @@ class HCController{
     public function afterRender() {}
 
     public function returnArgs() {
-        Debug::ttt('HCController::returnArgs()');
-        if (!isset($this->model->config)) return false;
-
-        $this->output['data']['info']['args'] = $this->args;
-
-        // Basic Args
-        /*
-        if (isset($this->args['c'])) {$this->output['data']['info']['controller'] = $this->args['c'];}
-        if (isset($this->args['a'])) {$this->output['data']['info']['action'] = $this->args['a'];}
-        if (isset($this->args['o'])) {$this->output['data']['info']['order'] = $this->args['o'];}
-        if (isset($this->args['d'])) {$this->output['data']['info']['direction'] = $this->args['d'];}
-        if (isset($this->args['s'])) {$this->output['data']['info']['start'] = $this->args['s'];}
-        if (isset($this->args['p'])) {$this->output['data']['info']['page'] = $this->args['p'];}
-        if (isset($this->args['l'])) {$this->output['data']['info']['limit'] = $this->args['l'];}
-        if (isset($this->args['f'])) {$this->output['data']['info']['format'] = $this->args['f'];}
-        if (isset($this->args['v'])) {$this->output['data']['info']['view'] = $this->args['v'];}
-        if (isset($this->args['cb'])) {$this->output['data']['info']['callback'] = $this->args['cb'];}
-
-        // Config Args
+        if ($this->isError()) return false;
         foreach ($this->model->config as $key => $options) {
             if (isset($options['value']) && !empty($options['value'])
                 && $key != 'token' && $key != 'referer') {
                 $this->output['data']['info'][$key] = $options['value'];
-            }else if (isset($options['value']) && ($options['value'] === 0 || $options['value'] === '0')) {
-                $this->output['data']['info'][$key] = $options['value'];
             }
         }
-        */
         return true;
     }
 
-    public static function staticRender($output, $filename='') {
-        Debug::ttt('HCController::staticRender()');
-
-        if (OUTPUT_VERSION == '1.0.0') {
-            $data = $output;
-        }
-
+    public static function staticRender($data, $filename='') {
         if (DEBUG <= 0 && TEST_CASE !== true) {
             header("Cache-Control: no-store, no-cache, must-revalidate, private, post-check=0, pre-check=0");
             header("Pragma: no-cache");
@@ -350,7 +299,7 @@ class HCController{
             if (DEBUG <= 0 && TEST_CASE !== true) {
                 header('Content-type: text/json; charset=utf-8');
             }
-            echo json_encode($output);
+            echo json_encode($data);
             return true;
         }else if (Web::getArg('f') == 'jsonp') {
             if (DEBUG <= 0 && TEST_CASE !== true) {
@@ -361,25 +310,19 @@ class HCController{
             if (isset($callback)) $callback = Web::getArg('cb');
             if (empty($callback)) $callback = 'callback';
 
-            echo $callback.'('.json_encode($output).')';
+            echo $callback.'('.json_encode($data).')';
         }else if (Web::getArg('f') == 'xml') {
             if (DEBUG <= 0 && TEST_CASE !== true) {
                 header('Content-type: text/xml; charset=utf-8');
             }
-            echo String::ArrayToXML ($output);
+            echo String::ArrayToXML ($data);
         }else if (Web::getArg('f') == 'html' && !empty($filename)) {
-            if((@include ROOT.'/views/'.Web::getArg('c').'/'.Web::getArg('a').'/'.$filename) === false) {
-                Controller::StaticError('INIT_ERRORS', 'ERROR_NO_VIEW_FILE');
-            }
-        }else if (Web::getArg('f') == 'path' && !empty($filename)) {
-            if((@include ROOT.'/views/'.$filename) === false) {
-                Controller::StaticError('INIT_ERRORS', 'ERROR_NO_VIEW_FILE');
-            }
+            include(ROOT.'/views/'.Web::getArg('c').'/'.Web::getArg('a').'/'.$filename);
         }else {
             if (DEBUG <= 0 && TEST_CASE !== true) {
                 header('Content-type: text/plain; charset=utf-8');
             }
-            print_r($output);
+            print_r($data);
         }
         return true;
     }
@@ -389,48 +332,40 @@ class HCController{
 
         $this->output['result'] = 0;
 
-        switch (OUTPUT_VERSION) {
-            case '1.0.0':
-                switch ($cate) {
-                    case 'INPUT_ERRORS': // input error need to show multiple errors
-                        if (isset($this->model->config)) {
-                            foreach ($this->model->config as $key => $options) {
-                                if (isset($options['error'])) {
-                                    $this->output['errors'][$key] = $options['error'];
-                                }
+        if ( MVC_VERSION == '2.1.8') {
+            switch ($cate) {
+                case 'INPUT_ERRORS': // input error need to show multiple errors
+                    if (isset($this->model->config)) {
+                        foreach ($this->model->config as $key => $options) {
+                            if (isset($options['error'])) {
+                                $this->output['errors'][$key] = $options['error'];
                             }
                         }
-                        break;
-                    default :
-                        $this->output['errors'][strtolower($cate)] = $error;
-                        break;
-                }
-                break;
-            default:
-                switch ($cate) {
-                    case 'INPUT_ERRORS': // input error need to show multiple errors
-                        $this->output['errors']['code'] = 'ERROR_INPUT';
-                        $this->output['errors']['text'] = $this->StaticGetMessageg($cate, $this->output['errors']['code']);
-                        if (isset($this->model->config)) {
-                            foreach ($this->model->config as $key => $options) {
-                                if (isset($options['error'])) {
-                                    if (!isset($options['value'])) $options['value'] = '';
-                                    $this->output['errors']['fields'][$key]['code'] = $options['error'];
-                                    $this->output['errors']['fields'][$key]['text'] = $this->getMessage($cate, $options['error'], $options['value']);
-                                }
+                    }
+                    break;
+                default :
+                    $this->output['errors'][strtolower($cate)] = $error;
+                    break;
+            }
+        }else if (MVC_VERSION == '3.0.0') {
+            switch ($cate) {
+                case 'INPUT_ERRORS': // input error need to show multiple errors
+                    $this->output['errors']['code'] = 'ERROR_INPUT';
+                    $this->output['errors']['text'] = $this->StaticGetMessageg($cate, $this->output['errors']['code']);
+                    if (isset($this->model->config)) {
+                        foreach ($this->model->config as $key => $options) {
+                            if (isset($options['error'])) {
+                                $this->output['errors']['fields'][$key]['code'] = $options['error'];
+                                $this->output['errors']['fields'][$key]['text'] = $this->getMessage($cate, $options['error'], $options['value']);
                             }
                         }
-                        break;
-                    default :
-                        if (!empty($error)) {
-                            $this->output['errors']['code'] = strtoupper($error);
-                        }else {
-                            $this->output['errors']['code'] = strtoupper($cate);
-                        }
-                        $this->output['errors']['text'] = $this->StaticGetMessageg($cate, $error);
-                        break;
-                }
-                break;
+                    }
+                    break;
+                default :
+                    $this->output['errors']['code'] = $error;
+                    $this->output['errors']['text'] = $this->StaticGetMessageg($cate, $error);
+                    break;
+            }
         }
 
         $this->Render();
@@ -447,32 +382,30 @@ class HCController{
         return $message;
     }
 
+
     public static function StaticGetMessageg($cate, $code) {
         $ini_file = ROOT.'/lang/'.LANG.'/message.ini';
         $messages = parse_ini_file($ini_file);
-        if (isset($messages[$code])) return $messages[$code];
-        else return $code;
+        return $messages[$code];
     }
 
     public static function StaticError($cate, $error = '') {
         Debug::ttt('HCController::InitError("'.$cate.'", "'.$error.'")');
 
-        switch (OUTPUT_VERSION) {
-            case '1.0.0':
-                $output = array('result' => 0,
-                              'errors' => array(strtolower($cate) => $error));
-                break;
-            default:
-                $error_msg = HCController::StaticGetMessageg($cate, $error);
-                $output = array('result' => 0,
-                              'errors' => array(
-                                'code' => $error,
-                                'text' => $error_msg
-                              ));
+        if (MVC_VERSION == '2.1.8') {
+            $data = array('result' => 0,
+                'errors' => array(strtolower($cate) => $error));
+        }else if (MVC_VERSION == '3.0.0') {
+            $error_msg = HCController::StaticGetMessageg($cate, $error);
+            $data = array('result' => 0,
+                'errors' => array(
+                    'code' => $error,
+                    'text' => $error_msg
+                ));
         }
 
         // Render
-        HCController::staticRender($output);
+        HCController::staticRender($data);
 
         Debug::ttt('total');
 
@@ -507,17 +440,14 @@ class HCController{
 
         $this->output['result'] = 1;
         if (isset($this->model->data) && is_array($this->model->data)) {
-            switch(OUTPUT_VERSION) {
-                case '1.0.0':
-                    $this->output = array_merge($this->output, $this->model->data);
-                    break;
-                default:
-                    if (isset($this->output['data'])) {
-                        $this->output['data'] = array_merge($this->output['data'], $this->model->data);
-                    }else {
-                        $this->output['data'] = $this->model->data;
-                    }
-                    break;
+            if (MVC_VERSION == '2.1.8') {
+                $this->output = array_merge($this->output, $this->model->data);
+            }else if (MVC_VERSION == '3.0.0') {
+                if (isset($this->output['data'])) {
+                    $this->output['data'] = array_merge($this->output['data'], $this->model->data);
+                }else {
+                    $this->output['data'] = $this->model->data;
+                }
             }
         }
         $this->Render();
@@ -556,36 +486,24 @@ class HCController{
         }
 
         $this->output['result'] = 1;
-        switch (OUTPUT_VERSION) {
-            case '1.0.0':
-                $this->output = $this->model->data;
-                break;
-            default:
-                $this->output['data'] = $this->model->data;
-                break;
+        if (MVC_VERSION == '2.1.8') {
+            $this->output = $this->model->data;
+        }else if (MVC_VERSION == '3.0.0') {
+            $this->output['data'] = $this->model->data;
         }
         $this->Render();
         return true;
     }
     public function recall($args = array()) {
         Debug::ttt('HCController::recall()');
-        $url = $this->getURLbyArgs($args);
-        $result = file_get_contents($url);
-        Debug::ppp($url);
-        return $result;
-    }
-    public function redirect($args = array()) {
-        Debug::ttt('HCController::redirect()');
-        $url = $this->getURLbyArgs($args);
-        header('Location: '.$url) ;
-    }
-    public function getURLbyArgs($args = array()) {
         $url = HOME.'/?';
         foreach($args as $key => $val) {
             $url .= $key.'='.$val.'&';
         }
         $url = substr($url, 0, -1);
-        return $url;
+        $result = file_get_contents($url);
+        Debug::ppp($url);
+        return $result;
     }
 }
 ?>

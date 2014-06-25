@@ -1,8 +1,7 @@
 <?php
 /**
- * @author Sungok Lim
+ * @author HanCube.com
  */
-
 class Validate {
     
     public static function check($rule, $rule_value, $value) {

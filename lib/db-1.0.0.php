@@ -1,4 +1,7 @@
 <?php
+/**
+ * @author HanCube.com
+ */
 class DB extends PDO{
     public $engine;
     public $host; 

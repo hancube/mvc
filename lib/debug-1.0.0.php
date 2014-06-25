@@ -1,6 +1,6 @@
 <?php
 /**
- * @author Sungok Lim
+ * @author HanCube.com
  */
 class Debug {
     public static $last_ttt;

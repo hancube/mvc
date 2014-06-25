@@ -1,4 +1,7 @@
 <?php
+/**
+ * @author HanCube.com
+ */
 
 class Web {
 
