@@ -9,8 +9,7 @@ switch (MVC_VERSION) {
 
         define('OUTPUT_VERSION',    '1.0.0');
         break;
-    case '3.0.0':
-    case '3.1.0':
+    default:
         define('DEBUG_VERSION',     '1.0.0');
         define('DB_VERSION',        '1.0.0');
         define('STRING_VERSION',    '1.0.0');
