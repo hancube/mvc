@@ -1,5 +1,5 @@
 <?php
-    define('MVC_VERSION', '2.1.8');
+    define('MVC_VERSION', '3.0.0');
 
     // Whitelists
     define ('USE_WHITELIST', false);
