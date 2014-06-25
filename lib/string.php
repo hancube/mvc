@@ -1,7 +1,5 @@
 <?php
-/**
- * @author HanCube.com
- */
+
 class String {
     public static function HtmlToTxt($html){
         if (is_array($html)) return $html;
@@ -35,6 +33,7 @@ class String {
                 $subnode = $xml->addChild("$key");
                 String::ArrayToXMLAddChild($value, $subnode);
             } else {
+                $value = str_replace('&','&amp;',$value);
                 $xml->addChild($key, $value);
             }
         }

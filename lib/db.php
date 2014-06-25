@@ -1,7 +1,4 @@
 <?php
-/**
- * @author HanCube.com
- */
 class DB extends PDO{
     public $engine;
     public $host; 
@@ -12,8 +9,8 @@ class DB extends PDO{
 
     public function __construct(){ 
         $this->engine = 'mysql'; 
-        $this->host = DB_HOST; 
-        $this->port = DB_PORT; 
+        $this->host = DB_HOST;
+        $this->port = DB_PORT;
         $this->name = DB_NAME; 
         $this->user = DB_USER; 
         $this->pass = DB_PASS; 

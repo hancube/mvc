@@ -16,7 +16,7 @@ if (USE_WHITELIST === true) {
     $domain1 = $domain2 - 1;
     $domain = $arr_domain[$domain1].'.'.$arr_domain[$domain2];
     if (!in_array($domain, $WHITELIST)) {
-        Controller::StaticError('INIT_ERRORS', 'ERROR_NOI_ALLOWED_DOMAIN');
+        Controller::StaticError('INIT_ERRORS', 'ERROR_NOT_ALLOWED_DOMAIN');
     }
 }
 debug::ttt('Index');

@@ -1,7 +1,8 @@
 <?php
 /**
- * @author HanCube.com
+ * @author Sungok Lim
  */
+
 class Validate {
     
     public static function check($rule, $rule_value, $value) {
@@ -29,7 +30,9 @@ class Validate {
 
             /* Rules */
             case 'numeric':
-                if (isset($value) && !empty($value) && !is_numeric($value)) {
+                if (strtoupper($value) == 'NULL') {
+                    // NULL Pass
+                }else if (isset($value) && !empty($value) && !is_numeric($value)) {
                     $return['result'] = FALSE;
                     $return['error'] = 'ERROR_NUMERIC';
                 }

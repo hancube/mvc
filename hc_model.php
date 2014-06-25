@@ -49,7 +49,7 @@
  *                                         // if it's not setup and where is true, "=" is default
  *          'sailthru_var' => 'Dollar',
  *          'pk'           => TRUE,
- *          'autoinc'   => TRUE,           // Auto Increase - if it's true, it's not adding on "insert" fields even it has a value
+ *          'autoinc'      => TRUE,        // Auto Increase - if it's true, it's not adding on "insert" fields even it has a value
  *          'type'         => 'file',      // Input Type and Value Type
  *          'default'      => '0'00',
  *          'required'     => TRUE,
@@ -165,7 +165,7 @@ class HCModel{
         $values = '';
         $values_memcache = '';
         foreach ($options['fields'] as $field => $value) {
-            $fields .= $field.',';
+            $fields .= ''.$field.',';
             $values .= ':'.$field.',';
             $values_memcache .= '"'.$value.'",';
         }
@@ -181,6 +181,7 @@ class HCModel{
         try {
             $stmt = $this->db->prepare($query);
             foreach ($options['fields'] as $field => $value) {
+                if (strtoupper($options['fields'][$field]) == 'NULL') $options['fields'][$field] = NULL;
                 $stmt->bindParam(':'.$field, $options['fields'][$field]);
                 Debug::ppp(':'.$field.', '.$options['fields'][$field]);
 
@@ -193,10 +194,13 @@ class HCModel{
             if (isset($options['id']) && empty($options['fields'][$options['id']])) {
                 $config_id = strtolower($options['id']);
                 $this->config[$config_id]['value'] = $this->db->lastInsertId();
-                if (MVC_VERSION == '2.1.8') {
-                    $this->data[$config_id] = $this->config[$config_id]['value'];
-                }else if (MVC_VERSION == '3.0.0') {
-                    $this->data['info'][$config_id] = $this->config[$config_id]['value'];
+                switch (OUTPUT_VERSION) {
+                    case '1.0.0':
+                        $this->data[$config_id] = $this->config[$config_id]['value'];
+                        break;
+                    case '2.0.0':
+                        $this->data['info'][$config_id] = $this->config[$config_id]['value'];
+                        break;
                 }
                 Debug::ppp($this->data);
             }
@@ -234,21 +238,21 @@ class HCModel{
     }
     public function update($options = array()) {
         Debug::ttt('HCModel::update()');
-       /*
-        * $options = array (
-        *      'table' => 'table1'
-        *      'fields' => array(
-        *          'field1' => 'value1',
-        *          'field1' => 'value1',
-        *          'field1' => 'value1'
-        *      ),
-        *      'where' = array (
-        *          array ('where','field1','=','value1'),
-        *          array ('and','field1','=','value1'),
-        *          array ('or','field1','=','value1')
-        *      )
-        * );
-        *
+        /*
+         $options = array (
+              'table' => 'table1',
+              'fields' => array(
+                  'field1' => 'value1',
+                  'field1' => 'value1',
+                  'field1' => 'value1'
+              ),
+              'where' => array (
+                  array ('where','field1','=','value1'),
+                  array ('and','field1','=','value1'),
+                  array ('or','field1','=','value1'),
+                  array ('or','field1','in',array())
+              )
+         );
         */
         if (!isset($options['where'])
             || isset($options['where'])
@@ -261,7 +265,13 @@ class HCModel{
             foreach ($config as $item) {
                 if (isset($item['where']) && $item['where'] === true
                     && isset($item['value']) && !empty($item['value'])) {
-                    if (!isset($item['operator'])) $item['operator'] = '=';
+                    if (!isset($item['operator'])) {
+                        if (strtoupper($item['value']) == 'NULL') {
+                            $item['operator'] = 'is';
+                        }else {
+                            $item['operator'] = '=';
+                        }
+                    }
                     $tmp = array($conn, $item['field'], $item['operator'], $item['value']);
                     $tmp = $this->switchOperator($tmp);
                     $options['where'][] = $tmp;
@@ -303,12 +313,20 @@ class HCModel{
         if (isset($options['where'])) {
             for ($i=0; $i<count($options['where']); $i++) {
                 $where .= ' '.$options['where'][$i][0];
-                $where .= ' '.$options['where'][$i][1];
+                $where .= ' '.$options['where'][$i][1].'';
                 $where .= ' '.$options['where'][$i][2];
-                $where .= ' :w'.$i;
+                if (is_array($options['where'][$i][3])) {
+                    $where .= ' (';
+                    for ($ii=0; $ii<count($options['where'][$i][3]); $ii++) {
+                        $where .= ' :w'.$i.'a'.$ii.',';
+                    }
+                    $where = substr($where, 0, -1);
+                    $where .= ') ';
+                }else {
+                    $where .= ' :w'.$i;
+                }
             }
         }
-
         $query = 'update '.$options['table'].' set '.$set.' '.$where;
 
         Debug::ppp($query);
@@ -317,15 +335,27 @@ class HCModel{
         try {
             $stmt = $this->db->prepare($query);
             foreach ($options['fields'] as $field => $value) {
+                if (strtoupper($options['fields'][$field]) == 'NULL') $options['fields'][$field] = NULL;
                 $stmt->bindParam(':'.$field, $options['fields'][$field]);
                 Debug::ppp(':'.$field.', '.$options['fields'][$field]);
 
                 // I don't know why it doesn't work below:
                 // $stmt->bindParam(':'.$field, $value);
             }
-            for ($i=0; $i<count($options['where']); $i++) {
-                $stmt->bindParam(':w'.$i, $options['where'][$i][3]);  
-                Debug::ppp(':w'.$i.', '.$options['where'][$i][3]);
+            if (isset($options['where'])) {
+                for ($i=0; $i<count($options['where']); $i++) {
+                    if (is_array($options['where'][$i][3])) {
+                        for ($ii=0; $ii<count($options['where'][$i][3]); $ii++) {
+                            if (strtoupper($options['where'][$i][3][$ii]) == 'NULL') $options['where'][$i][3][$ii] = NULL;
+                            $stmt->bindParam(':w'.$i.'a'.$ii, $options['where'][$i][3][$ii]);
+                            Debug::ppp(':w'.$i.'a'.$ii.', '.$options['where'][$i][3][$ii]);
+                        }
+                    }else {
+                        if (strtoupper($options['where'][$i][3]) == 'NULL') $options['where'][$i][3] = NULL;
+                        $stmt->bindParam(':w'.$i, $options['where'][$i][3]);
+                        Debug::ppp(':w'.$i.', '.$options['where'][$i][3]);
+                    }
+                }
             }
             $stmt->execute();
 
@@ -364,7 +394,13 @@ class HCModel{
             foreach ($config as $item) {
                 if (isset($item['where']) && $item['where'] === true
                     && isset($item['value']) && !empty($item['value'])) {
-                    if (!isset($item['operator'])) $item['operator'] = '=';
+                    if (!isset($item['operator'])) {
+                        if (strtoupper($item['value']) == 'NULL') {
+                            $item['operator'] = 'is';
+                        }else {
+                            $item['operator'] = '=';
+                        }
+                    }
                     $tmp = array($conn, $item['field'], $item['operator'], $item['value']);
                     $tmp = $this->switchOperator($tmp);
                     $options['where'][] = $tmp;
@@ -388,9 +424,9 @@ class HCModel{
         $where = '';
         if (isset($options['where'])) {
             for ($i=0; $i<count($options['where']); $i++) {
-                $where .= ' '.$options['where'][$i][0];
+                $where .= ' '.$options['where'][$i][0].'';
                 $where .= ' '.$options['where'][$i][1];
-                $where .= ' '.$options['where'][$i][2];
+                $where .= ' '.$options['where'][$i][2].'';
                 $where .= ' :w'.$i;
             }
         }
@@ -402,6 +438,7 @@ class HCModel{
         try {
             $stmt = $this->db->prepare($query);
             for ($i=0; $i<count($options['where']); $i++) {
+                if (strtoupper($options['where'][$i][3]) == 'NULL') $options['where'][$i][3] = NULL;
                 $stmt->bindParam(':w'.$i, $options['where'][$i][3]);  
                 Debug::ppp(':w'.$i.', '.$options['where'][$i][3]);
             }
@@ -446,29 +483,28 @@ class HCModel{
     }
     public function select($options = array()) {
         Debug::ttt('HCModel::select()');
-        
         /*
-         * $options = array (
-         *      'select' => array (
-         *          'a.field1', 
-         *          'field1', 
-         *          'field1', 
-         *          'format(field1)'
-         *      ),
-         *      'from' => array (
-         *          'Lists l',
-         *          'left join',
-         *          'Items i',
-         *          'on l.Id = i.listId'
-         *      ),
-         *      'where' => array (
-         *          array ('where','field1','=','value1'),
-         *          array ('and','field1','=','value1'),
-         *          array ('or','field1','=','value1')
-         *      )
-         * )
-         *
-         */
+        $options = array (
+             'select' => array (
+                 'a.field1',
+                 'field1',
+                 'field1',
+                 'format(field1)'
+             ),
+             'from' => array (
+                 'Lists l',
+                 'left join',
+                 'Items i',
+                 'on l.Id = i.listId'
+             ),
+             'where' => array (
+                 array ('where','field1','=','value1'),
+                 array ('and','field1','=','value1'),
+                 array ('or','field1','=','value1'),
+                 array ('or','field1','in',array())
+             )
+        );
+        */
         Debug::ppp($options);
 
         if (!isset($options['where'])
@@ -479,14 +515,22 @@ class HCModel{
             && count($this->config) > 0) {
             $conn = 'where';
             $config = $this->config;
-            foreach ($config as $item) {
-                if (isset($item['where']) && $item['where'] === true
-                    && isset($item['value']) && !empty($item['value'])) {
-                    if (!isset($item['operator'])) $item['operator'] = '=';
-                    $tmp = array($conn, $item['field'], $item['operator'], $item['value']);
-                    $tmp = $this->switchOperator($tmp);
-                    $options['where'][] = $tmp;
-                    $conn = 'and';
+            if (isset($config) && is_array($config)) {
+                foreach ($config as $item) {
+                    if (isset($item['where']) && $item['where'] === true
+                        && isset($item['value']) && !empty($item['value'])) {
+                        if (!isset($item['operator'])) {
+                            if (strtoupper($item['value']) == 'NULL') {
+                                $item['operator'] = 'is';
+                            }else {
+                                $item['operator'] = '=';
+                            }
+                        }
+                        $tmp = array($conn, $item['field'], $item['operator'], $item['value']);
+                        $tmp = $this->switchOperator($tmp);
+                        $options['where'][] = $tmp;
+                        $conn = 'and';
+                    }
                 }
             }
         }
@@ -494,12 +538,12 @@ class HCModel{
         $select = '';
         if (isset($options['select'])) {
             for ($i=0; $i<count($options['select']); $i++) {
-                $select .= $options['select'][$i].',';
+                $select .= ''.$options['select'][$i].',';
             }
         }else {
             foreach ($this->schema as $key => $item) {
                 if (isset($item['field']) && !empty($item['field'])) {
-                    $select .= $item['field'].' as '.$key.',';
+                    $select .= ''.$item['field'].' as '.$key.',';
                 }
             }
         }
@@ -521,14 +565,33 @@ class HCModel{
         if (isset($options['where'])) {
             for ($i=0; $i<count($options['where']); $i++) {
                 $where .= ' '.$options['where'][$i][0];
-                $where .= ' '.$options['where'][$i][1];
+                $where .= ' '.$options['where'][$i][1].'';
                 $where .= ' '.$options['where'][$i][2];
-                $where .= ' :w'.$i;
+                if (is_array($options['where'][$i][3])) {
+                    $where .= ' (';
+                    for ($ii=0; $ii<count($options['where'][$i][3]); $ii++) {
+                        $where .= ' :w'.$i.'a'.$ii.',';
+                    }
+                    $where = substr($where, 0, -1);
+                    $where .= ') ';
+                }else {
+                    $where .= ' :w'.$i;
+                }
 
                 $query_memcache .= ' '.$options['where'][$i][0];
-                $query_memcache .= ' '.$options['where'][$i][1];
+                $query_memcache .= ' '.$options['where'][$i][1].'';
                 $query_memcache .= ' '.$options['where'][$i][2];
-                $query_memcache .= ' '.$options['where'][$i][3];
+
+                if (is_array($options['where'][$i][3])) {
+                    $query_memcache .= ' (';
+                    for ($ii=0; $ii<count($options['where'][$i][3]); $ii++) {
+                        $query_memcache .= ' "'.$options['where'][$i][3][$ii].'",';
+                    }
+                    $query_memcache = substr($query_memcache, 0, -1);
+                    $query_memcache .= ') ';
+                } else {
+                    $query_memcache .= ' '.$options['where'][$i][3];
+                }
             }
         }
 
@@ -557,17 +620,21 @@ class HCModel{
         if (USE_MEMCACHE) {
             try {
                 $cached_data = $this->memcache->get($query_memcache);
-            } catch (Exception $e) {}
+            } catch (Exception $e) {
+                return $e;
+            }
         }
 
         if (isset($cached_data) && is_array($cached_data)) {
             Debug::ppp('HCModel::select::Memcached_data', 'Fuchsia');
             Debug::ppp('MemCache_key: '.$query_memcache, 'Fuchsia');
-
-            if (MVC_VERSION == '2.1.8') {
-                $this->data = $cached_data;
-            }else if (MVC_VERSION == '3.0.0') {
-                $this->data['items'] = $cached_data;
+            switch (OUTPUT_VERSION) {
+                case '1.0.0':
+                    $this->data = $cached_data;
+                    break;
+                case '2.0.0':
+                    $this->data['items'] = $cached_data;
+                    break;
             }
             Debug::ppp($this->data, 'Fuchsia');
         }else {
@@ -575,24 +642,39 @@ class HCModel{
                 $stmt = $this->db->prepare($query);
                 if (isset($options['where'])) {
                     for ($i=0; $i<count($options['where']); $i++) {
-                        $stmt->bindParam(':w'.$i, $options['where'][$i][3]);
-                        Debug::ppp(':w'.$i.', '.$options['where'][$i][3]);
+                        if (is_array($options['where'][$i][3])) {
+                            for ($ii=0; $ii<count($options['where'][$i][3]); $ii++) {
+                                if (strtoupper($options['where'][$i][3][$ii]) == 'NULL') $options['where'][$i][3][$ii] = NULL;
+                                $stmt->bindParam(':w'.$i.'a'.$ii, $options['where'][$i][3][$ii]);
+                                Debug::ppp(':w'.$i.'a'.$ii.', '.$options['where'][$i][3][$ii]);
+                            }
+                        }else {
+                            if (strtoupper($options['where'][$i][3]) == 'NULL') $options['where'][$i][3] = NULL;
+                            $stmt->bindParam(':w'.$i, $options['where'][$i][3]);
+                            Debug::ppp(':w'.$i.', '.$options['where'][$i][3]);
+                        }
                     }
                 }
                 $stmt->execute();
 
-                if (MVC_VERSION == '2.1.8') {
-                    $this->data = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                }else if (MVC_VERSION == '3.0.0') {
-                    $this->data['items'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                switch (OUTPUT_VERSION) {
+                    case '1.0.0':
+                        $this->data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                        break;
+                    case '2.0.0':
+                        $this->data['items'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                        break;
                 }
 
                 if (USE_MEMCACHE) {
                     try {
-                        if (MVC_VERSION == '2.1.8') {
-                            $this->memcache->set($query_memcache, $this->data, false, 60);
-                        }else if (MVC_VERSION == '3.0.0') {
-                            $this->memcache->set($query_memcache, $this->data['items'], false, 60);
+                        switch (OUTPUT_VERSION) {
+                            case '1.0.0':
+                                $this->memcache->set($query_memcache, $this->data, false, 60);
+                                break;
+                            case '2.0.0':
+                                $this->memcache->set($query_memcache, $this->data['items'], false, 60);
+                                break;
                         }
 
                         Debug::ppp($query_memcache, 'Fuchsia');
@@ -605,47 +687,66 @@ class HCModel{
             }
         }
 
-        if (MVC_VERSION == '2.1.8') {
-            if(!isset($this->data) || !is_array($this->data) || count($this->data) <= 0) {
-                return 'ERROR_DB_NO_DATA';
-            }
-        }else if (MVC_VERSION == '3.0.0') {
-            if(!isset($this->data['items']) || !is_array($this->data['items']) || count($this->data['items']) <= 0) {
-                return 'ERROR_DB_NO_DATA';
-            }
+        switch (OUTPUT_VERSION) {
+            case '1.0.0':
+                if(!isset($this->data) || !is_array($this->data) || count($this->data) <= 0) {
+                    return 'ERROR_DB_NO_DATA';
+                }
+                break;
+            case '2.0.0':
+                if(!isset($this->data['items']) || !is_array($this->data['items']) || count($this->data['items']) <= 0) {
+                    return 'ERROR_DB_NO_DATA';
+                }
+                break;
         }
 
         return true;
     }
 
-    public function query($query = '') {
+    public function query($query = '', $bind = array()) {
         Debug::ttt('HCModel::query()');
         if (empty($query)) return false;
 
         Debug::ppp($query);
         try {
             $stmt = $this->db->prepare($query);
+            if (count($bind) > 0) {
+                foreach ($bind as $key => $val) {
+                    if (strtoupper($$val) == 'NULL') $val = NULL;
+                    $stmt->bindParam($key, $val);
+                    Debug::ppp($key.', '.$val);
+                }
+            }
+
             $stmt->execute();
 
-            if (MVC_VERSION == '2.1.8') {
-                $this->data = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            }else if (MVC_VERSION == '3.0.0') {
-                $this->data['items'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            switch (OUTPUT_VERSION) {
+                case '1.0.0':
+                    $this->data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                    break;
+                case '2.0.0':
+                    $this->data['items'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                    break;
             }
+
             Debug::ppp($this->data);
         } catch (PDOException $exc) {
             Debug::Error($exc);
             return 'ERROR_DB_SELECT';
         }
-        if (MVC_VERSION == '2.1.8') {
-            if(!isset($this->data) || !is_array($this->data) || count($this->data) <= 0) {
-                return 'ERROR_DB_NO_DATA';
-            }
-        }else if (MVC_VERSION == '3.0.0') {
-            if(!isset($this->data['items']) || !is_array($this->data['items']) || count($this->data['items']) <= 0) {
-                return 'ERROR_DB_NO_DATA';
-            }
+        switch (OUTPUT_VERSION) {
+            case '1.0.0':
+                if(!isset($this->data) || !is_array($this->data) || count($this->data) <= 0) {
+                    return 'ERROR_DB_NO_DATA';
+                }
+                break;
+            case '2.0.0':
+                if(!isset($this->data['items']) || !is_array($this->data['items']) || count($this->data['items']) <= 0) {
+                    return 'ERROR_DB_NO_DATA';
+                }
+                break;
         }
+
         return true;
     }
 }
