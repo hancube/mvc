@@ -700,6 +700,7 @@ class HCModel{
     public function query($query = '', $bind = array()) {
         Debug::ttt('HCModel::query($query, $bind)');
         if (empty($query)) return false;
+        $command = strtoupper(substr(trim($query), 0, 6));
 
         Debug::ppp($query);
         Debug::ppp($bind);
@@ -714,25 +715,30 @@ class HCModel{
             }
 
             $stmt->execute();
-
-            if (strtoupper(substr(trim($query), 0, 6)) == 'SELECT') {
-                switch (OUTPUT_VERSION) {
-                    case '1.0.0':
-                        $this->data = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                        break;
+            switch ($command) {
+                case 'SELECT':
+                    switch (OUTPUT_VERSION) {
+                        case '1.0.0':
+                            $this->data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                            break;
                         default:
-                        $this->data['items'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                        break;
-                }
+                            $this->data['items'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                            break;
+                    }
+                    break;
+                default:
+                    if($stmt->rowCount() <= 0) {
+                        return 'ERROR_DB_NO_AFFECTED';
+                    }
+                    break;
             }
-
             Debug::ppp($this->data);
         } catch (PDOException $exc) {
             Debug::Error($exc);
             return 'ERROR_DB_QUERY';
         }
 
-        if (strtoupper(substr(trim($query), 0, 6)) == 'SELECT') {
+        if ($command == 'SELECT') {
             switch (OUTPUT_VERSION) {
                 case '1.0.0':
                     if(!isset($this->data) || !is_array($this->data) || count($this->data) <= 0) {
