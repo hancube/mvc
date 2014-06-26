@@ -697,16 +697,17 @@ class HCModel{
         return true;
     }
 
-    public function query($query = '') {
-        Debug::ttt('HCModel::query()');
+    public function query($query = '', $bind = array()) {
+        Debug::ttt('HCModel::query($query, $bind)');
         if (empty($query)) return false;
 
         Debug::ppp($query);
+        Debug::ppp($bind);
         try {
             $stmt = $this->db->prepare($query);
             if (isset($bind) && count($bind) > 0) {
                 foreach ($bind as $key => $val) {
-                    if (strtoupper($$val) == 'NULL') $val = NULL;
+                    if (strtoupper($val) == 'NULL') $val = NULL;
                     $stmt->bindParam($key, $val);
                     Debug::ppp($key.', '.$val);
                 }
@@ -714,31 +715,36 @@ class HCModel{
 
             $stmt->execute();
 
-            switch (OUTPUT_VERSION) {
-                case '1.0.0':
-                    $this->data = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                    break;
-                    default:
-                    $this->data['items'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                    break;
+            if (strtoupper(substr(trim($query), 0, 6)) == 'SELECT') {
+                switch (OUTPUT_VERSION) {
+                    case '1.0.0':
+                        $this->data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                        break;
+                        default:
+                        $this->data['items'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                        break;
+                }
             }
 
             Debug::ppp($this->data);
         } catch (PDOException $exc) {
             Debug::Error($exc);
-            return 'ERROR_DB_SELECT';
+            return 'ERROR_DB_QUERY';
         }
-        switch (OUTPUT_VERSION) {
-            case '1.0.0':
-                if(!isset($this->data) || !is_array($this->data) || count($this->data) <= 0) {
-                    return 'ERROR_DB_NO_DATA';
-                }
-                break;
-            case '2.0.0':
-                if(!isset($this->data['items']) || !is_array($this->data['items']) || count($this->data['items']) <= 0) {
-                    return 'ERROR_DB_NO_DATA';
-                }
-                break;
+
+        if (strtoupper(substr(trim($query), 0, 6)) == 'SELECT') {
+            switch (OUTPUT_VERSION) {
+                case '1.0.0':
+                    if(!isset($this->data) || !is_array($this->data) || count($this->data) <= 0) {
+                        return 'ERROR_DB_NO_DATA';
+                    }
+                    break;
+                case '2.0.0':
+                    if(!isset($this->data['items']) || !is_array($this->data['items']) || count($this->data['items']) <= 0) {
+                        return 'ERROR_DB_NO_DATA';
+                    }
+                    break;
+            }
         }
 
         return true;
