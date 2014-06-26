@@ -8,7 +8,7 @@ class Validate {
     public static function check($rule, $rule_value, $value) {
         $return = array('result' => TRUE, 'error' => '', 'value' => '');
 
-        $value = trim($value);
+	if (!is_array($value)) $value = trim($value);
         
         if (!isset($rule) || empty($rule)) return $return;
         if (!isset($value) || empty($value)) return $return;
