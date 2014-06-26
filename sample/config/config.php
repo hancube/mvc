@@ -84,5 +84,5 @@
     define ('MEMCACHE_PORT', '11211');
 
     define('SELECT_LIMIT', 10000);
-
+    define ('RETURN_ARGS', false);
 ?>

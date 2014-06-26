@@ -304,7 +304,9 @@ class HCController{
         Debug::ttt('HCController::returnArgs()');
         if (!isset($this->model->config)) return false;
 
-        $this->output['data']['info']['args'] = $this->args;
+        if (defined('RETURN_ARGS') && RETURN_ARGS === false) {
+            $this->output['data']['info']['args'] = $this->args;
+        }
 
         // Basic Args
         /*
