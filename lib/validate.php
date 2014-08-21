@@ -84,6 +84,16 @@ class Validate {
                     $return['error'] = 'ERROR_URL_FORMAT';
                 }
                 break;
+            case 'file':
+                if ($rule_value === TRUE) {
+                    if (!is_array($value)
+                        ||!isset($value['name'])
+                        ||empty($value['name'])) {
+                        $return['result'] = FALSE;
+                        $return['error'] = 'ERROR_FILE_FORMAT';
+                    }
+                }
+                break;
             case 'date': /* YYYY-MM-DD */
                 if (preg_match("/^(\d{4})-(\d{2})-(\d{2})$/", $value, $matches)) {
                     $yyyy = $matches[1];

@@ -3,6 +3,9 @@
     define('MVC_CODE_VERSION', '3.2.1');
     define('API_FOLDER', 'api');
 
+    // Keeping model->fields
+    define('DOC_ACTIONS', 'doc,ref');
+
     // Whitelists
     define ('USE_WHITELIST', false);
     $WHITELIST = array(
@@ -48,6 +51,8 @@
     define ('LANG', 'en');
 
     // Path
+    $folder = getcwd();
+    $folder = str_replace($_SERVER['DOCUMENT_ROOT'], '', $folder);
     if (!defined('ROOT')) {
         define ('ROOT', $_SERVER['DOCUMENT_ROOT'].'/'.API_FOLDER);
     }

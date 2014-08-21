@@ -56,16 +56,18 @@
  *          'rules'        => array (
  *              date          => TRUE,      // More rules in validate-1.0.0
  *              url           => TRUE,
+ *              file          => TRUE,
  *              enum          => array(M,F),
  *              email         => TRUE,
  *              numeric       => TRUE,
  *              min_length    => TRUE,
  *              max_length    => 5
  *          ),
- *          value       => '2000',
- *          formatted   => '2,000.00',
- *          error       => 'ERROR_CODE',
- *          where       => TRUE         // if it's true, and there is value in config, then add where condition in query using operator
+ *          'value'       => '2000',
+ *          'value_from'  => 'userid',    // if the value is null, set the value from the sepecified id
+ *          'formatted'   => '2,000.00',
+ *          'error'       => 'ERROR_CODE',
+ *          'where'       => TRUE         // if it's true, and there is value in config, then add where condition in query using operator
  *          )
 )
  */
@@ -92,7 +94,12 @@ class HCModel{
         $this->action = $action;
 
         $this->mergeConfig();
-        if ($this->action != 'doc') {
+        $DOC_ACTIONS = explode(',', DOC_ACTIONS);
+        if (isset($DOC_ACTIONS)
+            && count($DOC_ACTIONS) > 0
+            && in_array($this->action, $DOC_ACTIONS)) {
+            // Pass
+        }else {
             unset($this->fields);
         }
     }
@@ -100,11 +107,22 @@ class HCModel{
         Debug::ttt('HCModel::setValues()');
         if (!isset($this->config) || !is_array($this->config)) return false;
 
-        foreach ($this->config as $key => $val){
+        // Set Values
+        foreach ($this->config as $key => $options){
             if (isset($args[$key])) {
                 $this->config[$key]['value'] = $args[$key];
             }
         }
+
+        // Set value from id
+        foreach ($this->config as $key => $options){
+            if(!isset($options['value']) && empty($options['value'])
+                && isset($options['value_from']) && !empty($options['value_from'])
+                && isset($this->config[$options['value_from']]['value']) && !empty($this->config[$options['value_from']]['value'])) {
+                $this->config[$key]['value'] = $this->config[$options['value_from']]['value'];
+            }
+        }
+
         Debug::ppp($this->config);
         return true;
     }
@@ -121,7 +139,7 @@ class HCModel{
         }
         return true;
     }
-    public function insert($options = array()) {
+    public function insert($options = array(), $mode = '') {
         Debug::ttt('HCModel::insert()');
         /*
            $options = array (
@@ -174,8 +192,16 @@ class HCModel{
         $values = substr($values, 0, -1);
         $values_memcache = substr($values_memcache, 0, -1);
 
-        $query = 'insert into '.$options['table'].' ('.$fields.') values ('.$values.')';
-        $query_memcache = 'insert into '.$options['table'].' ('.$fields.') values ('.$values_memcache.')';
+        $sql_cmd = '';
+        switch ($mode) {
+            case 'replace':
+                $sql_cmd = 'replace';
+                break;
+            default:
+                $sql_cmd = 'insert';
+        }
+        $query = $sql_cmd.' into '.$options['table'].' ('.$fields.') values ('.$values.')';
+        $query_memcache = $sql_cmd.' into '.$options['table'].' ('.$fields.') values ('.$values_memcache.')';
         Debug::ppp($query);
         Debug::ppp($query_memcache);
 
@@ -191,7 +217,7 @@ class HCModel{
             $stmt->execute();
 
             // Get Inserted ID
-            if (isset($options['id']) && empty($options['fields'][$options['id']])) {
+            if ($mode == '' && isset($options['id']) && empty($options['fields'][$options['id']])) {
                 $config_id = strtolower($options['id']);
                 $this->config[$config_id]['value'] = $this->db->lastInsertId();
                 switch (OUTPUT_VERSION) {

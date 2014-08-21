@@ -304,7 +304,7 @@ class HCController{
         Debug::ttt('HCController::returnArgs()');
         if (!isset($this->model->config)) return false;
 
-        if (defined('RETURN_ARGS') && RETURN_ARGS === false) {
+        if (defined('RETURN_ARGS') && RETURN_ARGS === TRUE) {
             $this->output['data']['info']['args'] = $this->args;
         }
 
@@ -588,6 +588,229 @@ class HCController{
         }
         $url = substr($url, 0, -1);
         return $url;
+    }
+
+    public function ref() {
+        Debug::ttt('Controller::ref()');
+        $arr_fields = array();
+        foreach ($this->model->fields as $action => $fields){
+            foreach ($fields as $field => $item){
+                $arr_fields[$action][$field] = array_merge($item, $this->model->schema[$field]);
+            }
+        }
+        echo "<html>";
+        echo "<head>";
+        echo "
+        <style>
+        body{
+            font-size: 12px;
+            line-height: 12px;
+        }
+        h1 {
+            font-size: 18px;
+        }
+        h2 {
+            font-size: 14px;
+            padding-left: 20px;
+        }
+        ul,ol {
+            padding-left: 20px;
+
+        }
+        .field_id {
+            padding-left: 50px;
+        }
+        .default_info {
+            padding-left: 20px;
+            font-size: 14px;
+        }
+        .point {
+            color: #605ca8;
+            font-weight: bold;
+        }
+        </style>
+        ";
+        echo "</head>";
+        echo "<body>";
+        $num = 0;
+        foreach ($arr_fields as $action => $fields){
+            $num++;
+            // 1. ControllerAction
+            $arr_action = explode('_',$action);
+            $calltitle = ucfirst($this->controller).'::';
+            for($i=0; $i<count($arr_action); $i++) {
+                $calltitle .= ucfirst($arr_action[$i]);
+            }
+
+            echo '<h1>'.$calltitle.'</h1>';
+            echo '<div class="default_info">';
+            echo '<div>Controller: <span class="point">'.$this->controller.'</span></div>';
+            echo '<div>Action: <span class="point">'.$action.'</span></div>';
+            echo '</div>';
+
+            // Fixed Parameters
+            echo '<h2>Fixed Paremeters</h2>';
+            echo '<ul class="field_id">';
+            echo '<li>c='.$this->controller.'</li>';
+            echo '<li>a='.$action.'</li>';
+            echo '</ul>';
+
+            // Parameters
+            echo '<h2>Paremeters</h2>';
+            echo '<ul class="field_id">';
+            foreach ($fields as $field_id => $options){
+                echo '<li>'.$field_id.'</li>';
+            }
+            echo '</ul>';
+
+            // Explains
+            echo '<h2>Details</h2>';
+            $field_num = 0;
+            echo '<ol class="field_id">';
+            // Field List
+            foreach ($fields as $field_id => $options){
+                $field_num++;
+                echo '<li>'.$field_id.'</li>';
+                // Option List
+                echo '<ul class="options">';
+                foreach ($options as $option_id => $values){
+                    switch ($option_id) {
+                        case 'field':
+                            echo '<li>Database Field Name: '.$values.'</li>';
+                            break;
+                        case 'operator':
+                            echo '<li>Filtering Operator: '.$values.'</li>';
+                            break;
+                        case 'sailthru_var':
+                            echo '<li>Sailthru Variable Name: '.$values.'</li>';
+                            break;
+                        case 'type':
+                            echo '<li>Type: '.$values.'</li>';
+                            break;
+                        case 'value':
+                            echo '<li>Value: '.$values.'</li>';
+                            break;
+                        case 'error':
+                            echo '<li>Error: '.$values.'</li>';
+                            break;
+                        case 'formatted':
+                            echo '<li>Formatted Value: '.$values.'</li>';
+                            break;
+                        case 'default':
+                            echo '<li>Default Value: '.$values.'</li>';
+                            break;
+                        case 'pk':
+                            if ($values === true) {
+                                echo '<li>Primary Key of Database Table</li>';
+                            }
+                            break;
+                        case 'autoinc':
+                            if ($values === true) {
+                                echo '<li>Auto Increasing Field</li>';
+                            }
+                            break;
+                        case 'required':
+                            if ($values === true) {
+                                echo '<li>Required Field</li>';
+                            }
+                            break;
+                        case 'value_from':
+                            if (isset($values) && !empty($values)) {
+                                echo '<li>If you don\'t pass the value, the value is copied from '.$values.'</li>';
+                            }
+                            break;
+                        case 'where':
+                            if ($values === true) {
+                                echo '<li>Using as Search Condition</li>';
+                            }
+                            break;
+                        case 'rules':
+                            echo '<li>Rules:';
+                            echo '<ul class="rules">';
+                            // Rule list
+                            foreach ($values as $rule_id => $rule_values){
+                                switch($rule_id) {
+                                    case 'token':
+                                        echo '<li>Token Virification Required with '.$rule_values.'</li>';
+                                        break;
+                                    case 'rgb_color':
+                                        if ($rule_values === true) {
+                                            echo '<li>The value must be RGB Color Format</li>';
+                                        }
+                                        break;
+                                    case 'date':
+                                        if ($rule_values === true) {
+                                            echo '<li>The value must be Date Format (YYYY-MM-DD)</li>';
+                                        }
+                                        break;
+                                    case 'date_mdy':
+                                        if ($rule_values === true) {
+                                            echo '<li>The value must be Date Format (MM-DD-YY)</li>';
+                                        }
+                                        break;
+                                    case 'datetime':
+                                        if ($rule_values === true) {
+                                            echo '<li>The value must be DateTime Format (YYYY-MM-DD HH:MI:SS)</li>';
+                                        }
+                                        break;
+                                    case 'url':
+                                        if ($rule_values === true) {
+                                            echo '<li>The value must be URL Format</li>';
+                                        }
+                                        break;
+                                    case 'file':
+                                        if ($rule_values === true) {
+                                            echo '<li>The value must be File Type</li>';
+                                        }
+                                        break;
+                                    case 'email':
+                                        if ($rule_values === true) {
+                                            echo '<li>The value must be E-Mail Format</li>';
+                                        }
+                                        break;
+                                    case 'numeric':
+                                        if ($rule_values === true) {
+                                            echo '<li>The value must be Numeric</li>';
+                                        }
+                                        break;
+                                    case 'length':
+                                        echo '<li>The value cannot be exceeded '.$rule_values.'</li>';
+                                        break;
+                                    case 'max_length':
+                                        echo '<li>The max length of the value is '.$rule_values.'</li>';
+                                        break;
+                                    case 'min_length':
+                                        echo '<li>The length of the value must be at least '.$rule_values.'</li>';
+                                        break;
+                                    case 'enum':
+                                        if (is_array($rule_values)) {
+                                            $enum_values = '';
+                                            for($i=0;$i<count($rule_values); $i++) {
+                                                if ($enum_values != '') $enum_values .= ', ';
+                                                $enum_values .= $rule_values[$i];
+                                            }
+                                            echo '<li>The value must be one of '.$enum_values.'</li>';
+                                        }
+                                        break;
+                                    default:
+                                        echo '<li>'.$rule_id.': '.$rule_values.'</li>';
+                                        break;
+                                }
+                            }// Rule List
+                            echo '</li>';
+                            echo '</ul>'; // Rules Close
+                            break;
+                        default:
+                            echo '<li>'.$option_id.': '.$values.'</li>';
+                            break;
+                    }
+                }// Option List
+                echo '</ul>'; // Option Close
+            }
+            echo '</ol>'; // Field Close
+        }
+        echo "</body>";
+        echo "</html>";
     }
 }
 ?>
