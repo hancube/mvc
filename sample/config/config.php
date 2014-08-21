@@ -1,6 +1,6 @@
 <?php
-    define('MVC_VERSION', '3.2.1');
-    define('MVC_CODE_VERSION', '3.2.1');
+    define('MVC_VERSION', '3.3.0');
+    define('MVC_CODE_VERSION', '3.3.0');
     define('API_FOLDER', 'api');
 
     // Keeping model->fields
