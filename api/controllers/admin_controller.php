@@ -3,7 +3,7 @@
  * @author Sungok Lim
  */
 
-class SampleController extends Controller{
+class AdminController extends Controller{
 
 }
 

@@ -1,7 +1,7 @@
 <?php
 
-class SampleModel extends Model{
-    public $table = 'Sample';
+class AdminModel extends Model{
+    public $table = 'Admins';
 
     public $schema = array(
         'id' => array (
@@ -13,8 +13,15 @@ class SampleModel extends Model{
                 'max_length' => 11
             )
         ),
-        'sample' => array (
-            'field'     => 'Sample',
+        'userid' => array (
+            'field'     => 'userId',
+            'rules'     => array (
+                'numeric'    => TRUE,
+                'max_length' => 11
+            )
+        ),
+        'name' => array (
+            'field'     => 'Name',
             'rules'     => array (
                 'max_length' => 255
             )
@@ -26,7 +33,10 @@ class SampleModel extends Model{
             'id' => array (
                 'required' => FALSE,
             ),
-            'sample' => array (
+            'userid' => array (
+                'required' => TRUE,
+            ),
+            'name' => array (
                 'required' => TRUE,
             )
         ),
@@ -34,7 +44,7 @@ class SampleModel extends Model{
             'id' => array (
                 'required' => TRUE,
             ),
-            'sample' => array (
+            'name' => array (
                 'required' => TRUE,
             )
         ),
