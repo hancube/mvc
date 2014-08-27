@@ -590,6 +590,60 @@ class HCController{
         return $url;
     }
 
+    public function wiki() {
+        Debug::ttt('Controller::wiki()');
+        $arr_fields = array();
+        foreach ($this->model->fields as $action => $fields){
+            foreach ($fields as $field => $item){
+                $arr_fields[$action][$field] = array_merge($item, $this->model->schema[$field]);
+            }
+        }
+
+        $table = '<style>table{border-collapse:collapse;}table,th, td{border: 1px solid black;}.data{text-align:center;}</style>';
+        $wikitable = '{| class="wikitable"<br>';
+        $table .= '<table>';
+        $wikitable .= '|-<br>';
+        $table .= '<tr>';
+        $table .= '<td>Actions&rarr;<br>Data&darr;</td>';
+        $wikitable .= '! Actions&rarr;&lt;br&gt;Data&darr;';
+        foreach($this->model->fields as $action => $fields) {
+            $table .= '<td>'.$action.'</td>';
+            $wikitable .= '!!'.$action;
+        }
+        $table .= '</tr>';
+        $wikitable .= '<br>';
+
+        foreach($this->model->schema as $field => $item) {
+            $wikitable .= '|-<br>';
+            $table .= '<tr>';
+            $table .= '<td>'.$field.'</td>';
+            $wikitable .= '| '.$field;
+            foreach($this->model->fields as $action => $fields) {
+                if (isset($fields[$field]['required']) && $fields[$field]['required'] === true) {
+                    $required = '●';
+                }else if (isset($fields[$field]) && !isset($fields[$field]['required']) || $fields[$field]['required'] === false) {
+                    $required = '○';
+                }else {
+                    $required = '';
+                }
+                $table .= '<td class="data">'.$required.'</td>';
+                $wikitable .= '||'.$required;
+            }
+            $table .= '</tr>';
+            $wikitable .= '<br>';
+        }
+        $table .= '</table>';
+        $wikitable .= '|}';
+
+        echo '<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>';
+        echo '<h1>'.$this->controller.'</h1>';
+        echo $table;
+        echo '<br>';
+        echo '(●: required, ○:optional)<br>';
+        echo $wikitable;
+
+    }
+
     public function ref() {
         Debug::ttt('Controller::ref()');
         $arr_fields = array();
