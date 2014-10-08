@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<hdad>
+    <meta charset="utf-8">
+    <style>
+        body {
+            font-size: 12px;
+        }
+        .msg {
+            border: 1px solid black;
+            background-color: #f1f1f1;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        .msg h3{
+            margin-top: 0px;
+            margin-bottom: 0px;
+        }
+        .msg ul{
+            margin-bottom: 0px;
+        }
+        table {
+            width: 100%;
+            border-spacing: 0px;
+            border-right: 1px solid black;
+        }
+        table td{
+            border-left: 1px solid black;
+            border-bottom:1px solid black;
+        }
+        table thead td{
+            background-color: black;
+            color: white;
+        }
+        .bold {
+            font-weight: bold;
+        }
+        .hidden {
+            color: white;
+        }
+    </style>
+</hdad>
+<body>
+<h1>Result: <?=$output['result']?></h1>
+
+<?php if ($output['result'] === 0) {?>
+<div class="msg">
+    <h3>[<?=$output['errors']['code']?>] <?=$output['errors']['text']?></h3>
+    <ul>
+        <?php foreach($output['errors']['fields'] as $key => $val) {?>
+        <li>[<?=$output['errors']['fields'][$key]['code']?>] <span class="bold"><?=$key?></span> <?=$output['errors']['fields'][$key]['text']?></li>
+        <?php }?>
+    </ul>
+</div>
+<?php }else {?>
+<div class="msg">
+    Successfully Done
+</div>
+
+<?php if (isset($output['info'])) {?>
+<div class="msg">
+    <ul>
+    <?php foreach($output['info'] as $key => $val) {?>
+        <li><span class="bold"><?=$key?></span> <?=$val?></li>
+    <?php }?>
+    </ul>
+</div>
+<?php } ?>
+
+<?php if (isset($output['data']['info'])) {?>
+<div class="msg">
+    <ul>
+        <?php foreach($output['data']['info'] as $key => $val) {?>
+        <li><span class="bold"><?=$key?></span> <?=$val?></li>
+        <?php }?>
+    </ul>
+</div>
+<?php }?>
+
+<?php if (isset($output['data']['items']) && count($output['data']['items']) > 0) {?>
+<table>
+    <thead>
+    <tr>
+        <td>no</td>
+        <?php foreach($output['data']['items'][0] as $key => $val) {?>
+        <td><?=$key?></td>
+        <?php }?>
+    </tr>
+    </thead>
+    <tbody>
+    <?php for($i=0; $i<count($output['data']['items']); $i++) {?>
+    <tr>
+        <td><?=($i+1)?></td>
+        <?php foreach($output['data']['items'][0] as $key => $val) {?>
+        <td><?=$output['data']['items'][$i][$key]?></td>
+        <?php }?>
+    </tr>
+    <?php }?>
+    </tbody>
+</table>
+<?php }?>
+
+<?php }?>
+<div class="hidden">
+    <pre><?php print_r($output); ?></pre>
+</div>
+</body>
+</html>

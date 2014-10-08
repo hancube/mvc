@@ -54,14 +54,24 @@
  *          'default'      => '0'00',
  *          'required'     => TRUE,
  *          'rules'        => array (
- *              date          => TRUE,      // More rules in validate-1.0.0
+ *              date          => TRUE,      // YYYY-MM-DD
+ *              date_mdy      => TRUE,      // MM-DD-YY
+ *              datetime      => TRUE,      // YYYY-MM-DD HH:MI:SS
  *              url           => TRUE,
+ *              slug          => TRUE,
  *              file          => TRUE,
  *              enum          => array(M,F),
  *              email         => TRUE,
  *              numeric       => TRUE,
- *              min_length    => TRUE,
- *              max_length    => 5
+ *              array         => TRUE,
+ *              decimal       => TRUE,
+ *              length        => 5,
+ *              min_length    => 5,
+ *              max_length    => 5,
+ *              rgb_color     => TRUE,
+ *
+ *              uppercase     => TRUE,      // Transform the value
+ *              lowercase     => TRUE,      // Transform the value
  *          ),
  *          'value'       => '2000',
  *          'value_from'  => 'userid',    // if the value is null, set the value from the sepecified id
@@ -75,9 +85,11 @@
 class HCModel{
     public $table;  // Representative Table
     public $schema; // Table Fields Information
-    public $fields; // Input Fields by Actions
+    public $fields;  // Input Fields by Actions
+    public $ofields; // Output Fields by Actions
     public $config; // Merged Fields Configuration for an Action
 
+    public $controller;
     public $action;
     public $data;
     public $db;
@@ -87,6 +99,9 @@ class HCModel{
     public $limit;
     public $orderby;
     public $direction;
+    public $info;
+
+    public $use_encryption = false;
 
     public function __construct($action) {
         Debug::ttt('HCModel::__construct("'.$action.'")');
@@ -106,6 +121,9 @@ class HCModel{
     public function setValues(& $args) {
         Debug::ttt('HCModel::setValues()');
         if (!isset($this->config) || !is_array($this->config)) return false;
+        if (isset($args['c'])) {
+            $this->controller = $args['c'];
+        }
 
         // Set Values
         foreach ($this->config as $key => $options){
@@ -142,16 +160,30 @@ class HCModel{
     public function insert($options = array(), $mode = '') {
         Debug::ttt('HCModel::insert()');
         /*
-           $options = array (
-                'table' => 'table1',
-                'id' => 'field1',
-                'fields' => array(
-                    'field1' => 'value1',
-                    'field1' => 'value1',
-                    'field1' => 'value1'
-                )
-           );
+        $options = array (
+            'table' => 'table1',
+            'id' => 'field1',
+            'fields' => array(
+                'field1' => 'value1',
+                'field2' => 'value1',
+                'field3' => 'value1'
+            ),
+            'encrypt' => array(
+                'encrypted_field1',
+                'encrypted_field2'
+            ),
+            'encrypt_key' => array(
+                'public_key' => '',
+                'private_key' => ''
+            )
+        );
         */
+        $this->use_encryption = false;
+        if (isset($options['encrypt_key']['public_key']) && !empty($options['encrypt_key']['public_key'])
+            && isset($options['encrypt_key']['private_key']) && !empty($options['encrypt_key']['private_key'])) {
+            $this->use_encryption = true;
+        }
+        $encryption_key_bind = false;
 
         // Set Default Options
         if (!isset($options['table'])
@@ -163,7 +195,7 @@ class HCModel{
             || (isset($options['fields']) && count($options['fields'])) <= 0) {
             foreach ($this->config as $key => $item) {
                 if (isset($item['pk']) && $item['pk'] === true && isset($item['autoinc']) && $item['autoinc'] === true) {
-                    // skip
+                // skip
                 }else if (isset($item['field']) && isset($item['value'])) {
                     $options['fields'][$item['field']] = $item['value'];
                 }
@@ -178,6 +210,18 @@ class HCModel{
                 }
             }
         }
+
+        Debug::ppp('use_encryption: '.$this->use_encryption);
+        if ($this->use_encryption === true && (!isset($options['encrypt'])
+                                           || (isset($options['encrypt']) && count($options['encrypt'])) <= 0)) {
+            foreach ($this->config as $key => $item) {
+                Debug::ppp($key);
+                if (isset($item['encrypt']) && $item['encrypt'] === true
+                && isset($item['field']) && isset($item['value'])) {
+                    $options['encrypt'][] = $item['field'];
+                }
+            }
+        }
         Debug::ppp($options);
 
         $fields = '';
@@ -185,8 +229,20 @@ class HCModel{
         $values_memcache = '';
         foreach ($options['fields'] as $field => $value) {
             $fields .= $field.',';
-            $values .= ':'.$field.',';
-            $values_memcache .= '"'.$value.'",';
+            if (strpos($value,'(') !== false || strpos($value,')') !== false ) {
+                $values .= $value.',';
+                $values_memcache .= $value.',';
+            }else {
+                if ($this->use_encryption === true && isset($options['encrypt']) && in_array($field, $options['encrypt'])) {
+                    $alias = str_replace('.','_',$field);
+                    $values .= 'AES_ENCRYPT(:'.$alias.', SHA2(CONCAT(:PublicKey,:PrivateKey),512)),';
+                    $values_memcache .= 'AES_ENCRYPT("'.$value.'", SHA2(CONCAT(:PublicKey,:PrivateKey),512)),';
+                    $encryption_key_bind = true;
+                }else {
+                    $values .= ':'.str_replace('.','_',$field).',';
+                    $values_memcache .= '"'.$value.'",';
+                }
+            }
         }
         $fields = substr($fields, 0, -1);
         $values = substr($values, 0, -1);
@@ -199,6 +255,7 @@ class HCModel{
                 break;
             default:
                 $sql_cmd = 'insert';
+                break;
         }
         $query = $sql_cmd.' into '.$options['table'].' ('.$fields.') values ('.$values.')';
         $query_memcache = $sql_cmd.' into '.$options['table'].' ('.$fields.') values ('.$values_memcache.')';
@@ -208,11 +265,21 @@ class HCModel{
         try {
             $stmt = $this->db->prepare($query);
             foreach ($options['fields'] as $field => $value) {
-                $stmt->bindParam(':'.$field, $options['fields'][$field]);
-                Debug::ppp(':'.$field.', '.$options['fields'][$field]);
+                if (strpos($value,'(') !== false || strpos($value,')') !== false ) {
+                    Debug::ppp(':'.$field.', '.$value);
+                }else {
+                    $stmt->bindParam(':'.str_replace('.','_',$field), $options['fields'][$field]);
+                    Debug::ppp(':'.str_replace('.','_',$field).', '.$options['fields'][$field]);
+                }
 
                 // I don't know why it doesn't work below:
                 // $stmt->bindParam(':'.$field, $value);
+            }
+            if ($this->use_encryption === true && $encryption_key_bind === true) {
+                Debug::ppp(':PublicKey, '.$options['encrypt_key']['public_key']);
+                $stmt->bindParam(':PublicKey', $options['encrypt_key']['public_key']);
+                Debug::ppp(':PrivateKey, '.$options['encrypt_key']['private_key']);
+                $stmt->bindParam(':PrivateKey', $options['encrypt_key']['private_key']);
             }
             $stmt->execute();
 
@@ -277,9 +344,24 @@ class HCModel{
                   array ('and','field1','=','value1'),
                   array ('or','field1','=','value1'),
                   array ('or','field1','in',array())
+              ),
+             'encrypt' => array(
+                 'encrypted_field1',
+                 'encrypted_field2'
+              ),
+             'encrypt_key' => array(
+                 'public_key' => '',
+                 'private_field' => ''
               )
          );
         */
+        $this->use_encryption = false;
+        if (isset($options['encrypt_key']['public_key']) && !empty($options['encrypt_key']['public_key'])
+            && isset($options['encrypt_key']['private_field']) && !empty($options['encrypt_key']['private_field'])) {
+            $this->use_encryption = true;
+        }
+        $encryption_key_bind = false;
+
         if (!isset($options['where'])
             || isset($options['where'])
             && count($options['where']) <= 0
@@ -305,7 +387,6 @@ class HCModel{
                 }
             }
         }
-
         if (!isset($options['where'])
             || isset($options['where'])
             && count($options['where']) <= 0) {
@@ -329,27 +410,71 @@ class HCModel{
             }
         }
 
+        if ($this->use_encryption === true && (!isset($options['encrypt'])
+                || (isset($options['encrypt']) && count($options['encrypt'])) <= 0)) {
+            foreach ($this->config as $key => $item) {
+                if (isset($item['encrypt']) && $item['encrypt'] === true
+                    && isset($item['field']) && isset($item['value'])) {
+                    $options['encrypt'][] = $item['field'];
+                }
+            }
+        }
+
         $set = '';
         foreach ($options['fields'] as $field => $value) {
-            $set .= $field.' = :'.$field.',';
+            if (isset($options['encrypt_key']['private_field']) && $field == $options['encrypt_key']['private_field']) {
+                // Never update Private Key
+                continue;
+            }
+            if (strpos($value,'(') !== false || strpos($value,')') !== false ) {
+                $set .= $field.' = '.$value.',';
+            }else {
+                if ($this->use_encryption === true && isset($options['encrypt']) && in_array($field, $options['encrypt'])) {
+                    $alias = str_replace('.','_',$field);
+                    $set .= $field.' = AES_ENCRYPT(:'.$alias.', SHA2(CONCAT(:PublicKey, '.$options['encrypt_key']['private_field'].'),512)),';
+                    $encryption_key_bind = true;
+                }else {
+                    $alias = str_replace('.','_',$field);
+                    $set .= $field.' = :'.$alias.',';
+                }
+            }
+
         }
         $set = substr($set, 0, -1);
 
         $where = '';
         if (isset($options['where'])) {
             for ($i=0; $i<count($options['where']); $i++) {
-                $where .= ' '.$options['where'][$i][0];
-                $where .= ' '.$options['where'][$i][1].'';
-                $where .= ' '.$options['where'][$i][2];
-                if (is_array($options['where'][$i][3])) {
+                $conjunction = $options['where'][$i][0];
+                $field = $options['where'][$i][1];
+                $operator = $options['where'][$i][2];
+                $value = $options['where'][$i][3];
+
+                // decrypt the search field
+                if ($this->use_encryption === true && isset($options['encrypt']) && in_array($field, $options['encrypt'])) {
+                    $field = 'AES_DECRYPT('.$field.', SHA2(CONCAT(:PublicKey, '.$options['encrypt_key']['private_field'].'),512))';
+                    $encryption_key_bind = true;
+                }
+
+                $where .= ' '.$conjunction;
+                $where .= ' '.$field.'';
+                $where .= ' '.$operator;
+
+                if (is_array($value)) {
+                    // Case of "Field in (value1, value2, ..)"
                     $where .= ' (';
-                    for ($ii=0; $ii<count($options['where'][$i][3]); $ii++) {
+                    for ($ii=0; $ii<count($value); $ii++) {
                         $where .= ' :w'.$i.'a'.$ii.',';
                     }
                     $where = substr($where, 0, -1);
                     $where .= ') ';
                 }else {
-                    $where .= ' :w'.$i;
+                    // Case of including mysql functions
+                    if (strpos($value,'(') !== false || strpos($value,')') !== false ) {
+                        $where .= $value;
+                    }else {
+                        $where .= ' :w'.$i;
+                    }
                 }
             }
         }
@@ -361,10 +486,15 @@ class HCModel{
         try {
             $stmt = $this->db->prepare($query);
             foreach ($options['fields'] as $field => $value) {
-                if (strtoupper($options['fields'][$field]) == 'NULL') $options['fields'][$field] = NULL;
-                $stmt->bindParam(':'.$field, $options['fields'][$field]);
-                Debug::ppp(':'.$field.', '.$options['fields'][$field]);
-
+                if (strtoupper($options['fields'][$field]) == 'NULL') {
+                    $options['fields'][$field] = NULL;
+                }
+                if (strpos($value,'(') !== false || strpos($value,')') !== false ) {
+                    Debug::ppp(':'.$field.', '.$value);
+                }else {
+                    $stmt->bindParam(':'.str_replace('.','_',$field), $options['fields'][$field]);
+                    Debug::ppp(':'.str_replace('.','_',$field).', '.$options['fields'][$field]);
+                }
                 // I don't know why it doesn't work below:
                 // $stmt->bindParam(':'.$field, $value);
             }
@@ -383,6 +513,10 @@ class HCModel{
                     }
                 }
             }
+            if ($this->use_encryption === true && $encryption_key_bind === true) {
+                Debug::ppp(':PublicKey, '.$options['encrypt_key']['public_key']);
+                $stmt->bindParam(':PublicKey', $options['encrypt_key']['public_key']);
+            }
             $stmt->execute();
 
             if($stmt->rowCount() <= 0) {
@@ -398,16 +532,30 @@ class HCModel{
     public function delete($options = array()) {
         Debug::ttt('HCModel::delete()');
         /*
-            $options = array (
-                 'table' => 'table1',
-                 'where' => array (
-                     array ('where','field1','=','value1'),
-                     array ('and','field1','=','value1'),
-                     array ('or','field1','=','value1')
-                 )
-            );
-
+        $options = array (
+            'table' => 'table1',
+            'where' => array (
+                array ('where','field1','=','value1'),
+                array ('and','field1','=','value1'),
+                array ('or','field1','=','value1')
+            ),
+            'encrypt' => array(
+                'encrypted_field1',
+                'encrypted_field2'
+            ),
+            'encrypt_key' => array(
+                'public_key' => '',
+                'private_field' => ''
+            )
+        );
         */
+        $this->use_encryption = false;
+        if (isset($options['encrypt_key']['public_key']) && !empty($options['encrypt_key']['public_key'])
+            && isset($options['encrypt_key']['private_field']) && !empty($options['encrypt_key']['private_field'])) {
+            $this->use_encryption = true;
+        }
+
+        $encryption_key_bind = false;
 
         if (!isset($options['where'])
             || isset($options['where'])
@@ -441,13 +589,50 @@ class HCModel{
             $options['table'] = $this->table;
         }
 
+        if ($this->use_encryption === true && (!isset($options['encrypt'])
+                || (isset($options['encrypt']) && count($options['encrypt'])) <= 0)) {
+            foreach ($this->config as $key => $item) {
+                if (isset($item['encrypt']) && $item['encrypt'] === true
+                    && isset($item['field']) && isset($item['value'])) {
+                    $options['encrypt'][] = $item['field'];
+                }
+            }
+        }
+
         $where = '';
         if (isset($options['where'])) {
             for ($i=0; $i<count($options['where']); $i++) {
-                $where .= ' '.$options['where'][$i][0];
-                $where .= ' '.$options['where'][$i][1];
-                $where .= ' '.$options['where'][$i][2];
-                $where .= ' :w'.$i;
+                $conjunction = $options['where'][$i][0];
+                $field = $options['where'][$i][1];
+                $operator = $options['where'][$i][2];
+                $value = $options['where'][$i][3];
+
+                // decrypt the search field
+                if ($this->use_encryption === true && isset($options['encrypt']) && in_array($field, $options['encrypt'])) {
+                    $field = 'AES_DECRYPT('.$field.', SHA2(CONCAT(:PublicKey, '.$options['encrypt_key']['private_field'].'),512))';
+                    $encryption_key_bind = true;
+                }
+
+                $where .= ' '.$conjunction;
+                $where .= ' '.$field.'';
+                $where .= ' '.$operator;
+
+                if (is_array($value)) {
+                    // Case of "Field in (value1, value2, ..)"
+                    $where .= ' (';
+                    for ($ii=0; $ii<count($value); $ii++) {
+                        $where .= ' :w'.$i.'a'.$ii.',';
+                    }
+                    $where = substr($where, 0, -1);
+                    $where .= ') ';
+                }else {
+                    // Case of including mysql functions
+                    if (strpos($value,'(') !== false || strpos($value,')') !== false ) {
+                        $where .= $value;
+                    }else {
+                        $where .= ' :w'.$i;
+                    }
+                }
             }
         }
 
@@ -461,6 +646,10 @@ class HCModel{
                 if (strtoupper($options['where'][$i][3]) == 'NULL') $options['where'][$i][3] = NULL;
                 $stmt->bindParam(':w'.$i, $options['where'][$i][3]);
                 Debug::ppp(':w'.$i.', '.$options['where'][$i][3]);
+            }
+            if ($this->use_encryption === true && $encryption_key_bind === true) {
+                Debug::ppp(':PublicKey, '.$options['encrypt_key']['public_key']);
+                $stmt->bindParam(':PublicKey', $options['encrypt_key']['public_key']);
             }
             $stmt->execute();
 
@@ -522,9 +711,41 @@ class HCModel{
                  array ('and','field1','=','value1'),
                  array ('or','field1','=','value1'),
                  array ('or','field1','in',array())
+             ),
+             'groupby' => array (
+                 'field1',
+                 'field1'
+             ),
+             'orderby' => array (
+                 array ('field1','asc'),
+                 array ('field1','desc'field1)
+             ),
+             'limit' => array (0,10),
+             'encrypt' => array(
+                 'encrypted_field1',
+                 'encrypted_field2'
+              ),
+             'encrypt_key' => array(
+                'public_key' => '',
+                'private_field' => ''
              )
         );
         */
+        $this->use_encryption = false;
+        if (isset($options['encrypt_key']['public_key']) && !empty($options['encrypt_key']['public_key'])
+            && isset($options['encrypt_key']['private_field']) && !empty($options['encrypt_key']['private_field'])) {
+            $this->use_encryption = true;
+        }
+
+        // when encryption is not setup, check each field in config if the encryt property is true
+        if ($this->use_encryption === true && (!isset($options['encrypt'])
+                || (isset($options['encrypt']) && count($options['encrypt'])) <= 0)) {
+            foreach ($this->schema as $key => $item) {
+                if (isset($item['encrypt']) && $item['encrypt'] === true && isset($item['field'])) {
+                    $options['encrypt'][] = $item['field'];
+                }
+            }
+        }
         Debug::ppp($options);
 
         if (!isset($options['where'])
@@ -538,6 +759,7 @@ class HCModel{
             if (isset($config) && is_array($config)) {
                 foreach ($config as $item) {
                     if (isset($item['where']) && $item['where'] === true
+                        && isset($item['field']) && !empty($item['field'])
                         && isset($item['value']) && !empty($item['value'])) {
                         if (!isset($item['operator'])) {
                             if (strtoupper($item['value']) == 'NULL') {
@@ -555,16 +777,42 @@ class HCModel{
             }
         }
 
+        if (!isset($options['select'])
+            || (isset($options['select']) && count($options['select'])) <= 0) {
+            foreach ($this->schema as $key => $item) {
+                if (isset($item['field']) && !empty($item['field'])) {
+                    $options['select'][] = $item['field'];
+                }
+            }
+        }
+        Debug::ppp($options);
+
+        $encryption_key_bind = false;
         $select = '';
         if (isset($options['select'])) {
             for ($i=0; $i<count($options['select']); $i++) {
-                $select .= ''.$options['select'][$i].',';
-            }
-        }else {
-            foreach ($this->schema as $key => $item) {
-                if (isset($item['field']) && !empty($item['field'])) {
-                    $select .= ''.$item['field'].' as '.$key.',';
-                }
+                $field = $options['select'][$i];
+
+                    if (preg_match('/^([^\.]*\.?[^ ]+)[ |\t]+as[ |\t]+(.+)$/i', $field, $matches)) {
+                        $field_name = $matches[1];
+                        $field_alias = $matches[2];
+                        // 1. Table.Field as alias
+                        if ($this->use_encryption === true && isset($options['encrypt']) && in_array($field_name, $options['encrypt'])) {
+                            $encryption_key_bind = true;
+                            $select .= 'AES_DECRYPT('.$field_name.', SHA2(CONCAT(:PublicKey, '.$options['encrypt_key']['private_field'].'),512)) as '.$field_alias.',';
+
+                        }else {
+                            $select .= ''.$field.',';
+                        }
+                    }else {
+                        if ($this->use_encryption === true && isset($options['encrypt']) && in_array($field, $options['encrypt'])) {
+                            $encryption_key_bind = true;
+                            $select .= 'AES_DECRYPT('.$field.', SHA2(CONCAT(:PublicKey, '.$options['encrypt_key']['private_field'].'),512)) as '.$field.',';
+                        }else {
+                            $select .= ''.$field.',';
+                        }
+
+                    }
             }
         }
         $select = substr($select, 0, -1);
@@ -584,23 +832,53 @@ class HCModel{
         $where = '';
         if (isset($options['where'])) {
             for ($i=0; $i<count($options['where']); $i++) {
-                $where .= ' '.$options['where'][$i][0];
-                $where .= ' '.$options['where'][$i][1].'';
-                $where .= ' '.$options['where'][$i][2];
-                if (is_array($options['where'][$i][3])) {
+                $conjunction = $options['where'][$i][0];
+                $field = $options['where'][$i][1];
+                $operator = $options['where'][$i][2];
+                $value = $options['where'][$i][3];
+
+                // decrypt the search field
+                if ($this->use_encryption === true && isset($options['encrypt'])) {
+                    if (in_array($field, $options['encrypt'])) {
+                        $field = 'AES_DECRYPT('.$field.', SHA2(CONCAT(:PublicKey, '.$options['encrypt_key']['private_field'].'),512))';
+                        $encryption_key_bind = true;
+                    }else if (strpos($field,'(') !== false || strpos($field,')') !== false ) {
+                        for ($j=0;$j<count($options['encrypt']);$j++) {
+                            $encrypt_field = $options['encrypt'][$j];
+                            if (strpos($field, '('.$encrypt_field.')') !== false) {
+                                $from = '('.$encrypt_field.')';
+                                $to = '('.'AES_DECRYPT('.$encrypt_field.', SHA2(CONCAT(:PublicKey, '.$options['encrypt_key']['private_field'].'),512))'.')';
+                                $field = str_replace($from, $to, $field);
+                                $encryption_key_bind = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                $where .= ' '.$conjunction;
+                $where .= ' '.$field.'';
+                $where .= ' '.$operator;
+                if (is_array($value)) {
+                    // Case of "Field in (value1, value2, ..)"
                     $where .= ' (';
-                    for ($ii=0; $ii<count($options['where'][$i][3]); $ii++) {
+                    for ($ii=0; $ii<count($value); $ii++) {
                         $where .= ' :w'.$i.'a'.$ii.',';
                     }
                     $where = substr($where, 0, -1);
                     $where .= ') ';
                 }else {
-                    $where .= ' :w'.$i;
+                    // Case of including mysql functions
+                    if (strpos($value,'(') !== false || strpos($value,')') !== false ) {
+                        $where .= $value;
+                    }else {
+                        $where .= ' :w'.$i;
+                    }
                 }
 
-                $query_memcache .= ' '.$options['where'][$i][0];
-                $query_memcache .= ' '.$options['where'][$i][1].'';
-                $query_memcache .= ' '.$options['where'][$i][2];
+                $query_memcache .= ' '.$conjunction;
+                $query_memcache .= ' '.$field.'';
+                $query_memcache .= ' '.$operator;
 
                 if (is_array($options['where'][$i][3])) {
                     $query_memcache .= ' (';
@@ -615,24 +893,55 @@ class HCModel{
             }
         }
 
-        $order = '';
-        if (isset($this->orderby)) {
+        $groupby = '';
+        if (isset($options['groupby']) && !empty($options['groupby'])) {
+            for ($i=0; $i<count($options['groupby']); $i++) {
+                if ($groupby == '') {
+                    $groupby = ' group by ';
+                }else {
+                    $groupby .= ',';
+                }
+                $groupby .= $options['groupby'][$i];
+            }
+        }
+
+        $orderby = '';
+        if (isset($options['orderby']) && !empty($options['orderby'])) {
+            for ($i=0; $i<count($options['orderby']); $i++) {
+                if ($orderby == '') {
+                    $orderby = ' order by ';
+                }else {
+                    $orderby .= ',';
+                }
+                $orderby .= $options['orderby'][$i][0].' '.$options['orderby'][$i][1];
+            }
+        }else if (isset($this->orderby)) {
             if (!isset($this->direction)) $this->direction = 'ASC';
-            $order = ' order by '.$this->orderby.' '.$this->direction;
+            $orderby = ' order by '.$this->orderby.' '.$this->direction;
         }
 
         $limit = '';
-        if (isset($this->start) && isset($this->limit)) {
+        if (isset($options['limit']) && !empty($options['limit'])) {
+            $limit .= $options['limit'][$i][0];
+            if (isset($options['limit'][$i][1])) {
+                $limit .= ', '.$options['limit'][$i][1];
+            }
+        }else if (isset($this->start) && isset($this->limit)) {
             $limit = ' limit '.$this->start.', '.$this->limit;
         }
 
-        $query  = ' select '.$select;
+        $SQL_CALC_FOUND_ROWS = '';
+        if (isset($this->info) && strpos($this->info, 't') !== false) {
+            $SQL_CALC_FOUND_ROWS = ' SQL_CALC_FOUND_ROWS ';
+        }
+        $query  = ' select '.$SQL_CALC_FOUND_ROWS.$select;
         $query .= ' from '.$from;
         $query .= ' '.$where;
-        $query .= ' '.$order;
+        $query .= ' '.$groupby;
+        $query .= ' '.$orderby;
         $query .= ' '.$limit;
 
-        $query_memcache .= ' '.$order;
+        $query_memcache .= ' '.$orderby;
         $query_memcache .= ' '.$limit;
         Debug::ppp($query);
         Debug::ppp($query_memcache);
@@ -669,11 +978,19 @@ class HCModel{
                                 Debug::ppp(':w'.$i.'a'.$ii.', '.$options['where'][$i][3][$ii]);
                             }
                         }else {
-                            if (strtoupper($options['where'][$i][3]) == 'NULL') $options['where'][$i][3] = NULL;
-                            $stmt->bindParam(':w'.$i, $options['where'][$i][3]);
+                            if (strpos($options['where'][$i][3],'(') !== false || strpos($options['where'][$i][3],')') !== false ) {
+                                // bind pass
+                            }else {
+                                if (strtoupper($options['where'][$i][3]) == 'NULL') $options['where'][$i][3] = NULL;
+                                $stmt->bindParam(':w'.$i, $options['where'][$i][3]);
+                            }
                             Debug::ppp(':w'.$i.', '.$options['where'][$i][3]);
                         }
                     }
+                }
+                if ($this->use_encryption === true && $encryption_key_bind === true) {
+                    Debug::ppp(':PublicKey, '.$options['encrypt_key']['public_key']);
+                    $stmt->bindParam(':PublicKey', $options['encrypt_key']['public_key']);
                 }
                 $stmt->execute();
 
@@ -720,6 +1037,12 @@ class HCModel{
                 break;
         }
 
+        if (isset($this->info) && strpos($this->info, 't') !== false) {
+            $result = $this->get_total();
+            if ($result !== false) {
+                $this->data['info']['total'] = $result;
+            }
+        }
         return true;
     }
 
@@ -727,6 +1050,9 @@ class HCModel{
         Debug::ttt('HCModel::query($query, $bind)');
         if (empty($query)) return false;
         $command = strtoupper(substr(trim($query), 0, 6));
+        if (isset($this->info) && strpos($this->info, 't') !== false && $command == 'SELECT' && strpos($query, 'FOUND_ROWS') === false) {
+            $query = str_replace(substr(trim($query), 0, 6), substr(trim($query), 0, 6).' SQL_CALC_FOUND_ROWS', $query);
+        }
 
         Debug::ppp($query);
         Debug::ppp($bind);
@@ -777,6 +1103,9 @@ class HCModel{
                     }
                     break;
             }
+            if (isset($this->info) && strpos($this->info, 't') !== false && strpos($query, 'FOUND_ROWS') === false) {
+                $this->data['info']['total'] = $this->get_total();
+            }
         }
 
         return true;
@@ -800,6 +1129,18 @@ class HCModel{
         $arr_search_fields[] = $prefix.'p';
         Debug::ppp($arr_search_fields);
         return $arr_search_fields;
+    }
+    public function get_total() {
+        Debug::ttt('HCModel::get_total()');
+        // After Specifying SQL_CALC_FOUND_ROWS in your select query
+        // i.e.) select SQL_CALC_FOUND_ROWS * from Table
+        $tmp = $this->data;
+        if ($this->query('SELECT FOUND_ROWS() as total')) {
+            $total = $this->data['items'][0]['total'];
+            $this->data = $tmp;
+            return $total;
+        }
+        return false;
     }
 }
 ?>

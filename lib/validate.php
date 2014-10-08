@@ -29,10 +29,22 @@ class Validate {
                 break;
 
             /* Rules */
+            case 'array':
+                if (isset($value) && !is_array($value)) {
+                    $return['result'] = FALSE;
+                    $return['error'] = 'ERROR_ARRAY';
+                }
+                break;
             case 'numeric':
                 if (isset($value) && !empty($value) && !is_numeric($value)) {
                     $return['result'] = FALSE;
                     $return['error'] = 'ERROR_NUMERIC';
+                }
+                break;
+            case 'decimal':
+                if(!preg_match("/^[0-9]+[\.][0-9]+$/", $value)) {
+                    $return['result'] = FALSE;
+                    $return['error'] = 'ERROR_DECIMAL_COLOR';
                 }
                 break;
             case 'email':
@@ -92,6 +104,12 @@ class Validate {
                         $return['result'] = FALSE;
                         $return['error'] = 'ERROR_FILE_FORMAT';
                     }
+                }
+                break;
+            case 'slug':
+                if (preg_match("/^[a-z|0-9|_|-]+$/", $options['value'], $matches)) {
+                    $return['result'] = FALSE;
+                    $return['error'] = 'ERROR_NOT_SLUG';
                 }
                 break;
             case 'date': /* YYYY-MM-DD */

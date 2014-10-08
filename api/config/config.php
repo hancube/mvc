@@ -5,9 +5,10 @@
     define('MVC_VERSION', '3.3.0');
     define('MVC_CODE_VERSION', '3.3.0');
     define('API_FOLDER', 'api');
+    define('API_PROTOCOL', 'http');
 
     // Keeping model->fields
-    define('DOC_ACTIONS', 'doc,ref');
+    define('DOC_ACTIONS', 'wiki,ref,test');
 
     // Whitelists
     define ('USE_WHITELIST', false);
@@ -92,13 +93,13 @@
         define ('ROOT', $_SERVER['DOCUMENT_ROOT'].'/'.API_FOLDER);
     }
     if (!defined('HOME')) {
-        define ('HOME', 'http://'.DOMAIN.'/'.API_FOLDER);
+        define ('HOME', API_PROTOCOL.'://'.DOMAIN.'/'.API_FOLDER);
     }
     define ('LIB', ROOT.'/');
     define ('VENDORS', $_SERVER['DOCUMENT_ROOT'].'/vendors');
     define ('MVC_LIB', VENDORS.'/hancube/mvc-'.MVC_CODE_VERSION);
     define ('TMP_PATH', '/tmp');
-    define ('CURR_URL', 'http://'.$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI']);
+    define ('CURR_URL', API_PROTOCOL.'://'.$_SERVER['HTTP_HOST'].$_SERVER['REQUEST_URI']);
 
     // Memcache
     define ('USE_MEMCACHE', false);

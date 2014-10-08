@@ -8,34 +8,15 @@ How To Use
 ###############
 1) Open /config/config.php, and set the information
 2) Create a table in your MySql Database
-DROP TABLE IF EXISTS `Admins`;
-CREATE TABLE IF NOT EXISTS `Admins` (
-`Id` int(11) unsigned NOT NULL AUTO_INCREMENT,
-`userId` varchar(255) COLLATE utf8_bin NOT NULL,
-`Name` varchar(255) COLLATE utf8_bin NOT NULL,
+CREATE TABLE `Sample` (
+`Id` int(11) NOT NULL AUTO_INCREMENT,
+`Sample` varchar(255) CHARACTER SET utf8 COLLATE utf8_bin NOT NULL,
 `CreateDate` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-PRIMARY KEY (`Id`),
-KEY `i_userId` (`userId`),
-KEY `i_CreateDate` (`CreateDate`)
-)  ENGINE=INNODB DEFAULT CHARSET=utf8 COLLATE=utf8_bin;
-DROP TABLE IF EXISTS `Permissions`; 
-CREATE TABLE IF NOT EXISTS `Permissions` (
- `Id` int(11) NOT NULL AUTO_INCREMENT,
- `adminId` int(11) NOT NULL,
- `Controller` varchar(255) CHARACTER SET utf8 COLLATE utf8_bin DEFAULT NULL,
- `Action` varchar(255) CHARACTER SET utf8 COLLATE utf8_bin DEFAULT NULL,
- `Status` int(11) DEFAULT '0',
- `CreateDate` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
- PRIMARY KEY (`Id`),
- KEY `i_adminId` (`adminId`),
- KEY `i_Controller` (`Controller`),
- KEY `i_Action` (`Action`),
- KEY `i_Status` (`Status`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 AUTO_INCREMENT=1 ;
-
+PRIMARY KEY (`Id`)
+) ENGINE=INNODB DEFAULT CHARSET=utf8 AUTO_INCREMENT=1 ;
 3) Run on Your Browser
-YOUR_API_HOME/?c=admin&a=add&name=Test
-YOUR_API_HOME/?c=admin&a=get
+YOUR_APP_HOME/?c=sample&a=add&sample=Test
+YOUR_APP_HOME/?c=sample&a=get
 
 ###############
 Default Inputs
@@ -108,3 +89,17 @@ Array
    </data>
 </root>
 
+############
+Version Rule
+############
+1. Basic Version Policy
+    1) New version contains all history of the old versions.
+       You can use any version with the latest version.
+       You can define MVC_VERSION and MVC_CODE_VERSION differently, but the MCV_CODE_VERSION must be higher than MVC_VERSION.
+2. Version Format Policy
+    Format: X1.X2.X3
+    1) If X1 is different, you cannot just switch the version. you have to upgrade your front-end too.
+    2) If X2 is different, something is improved or added. You can upgrade MVC without any change.
+       (Only specify the version on Config.php)
+    3) If X3 is different, some errors are fixed. You can also upgrade MVC version without any change.
+       (Of course you have to specify the version, so the path target the new version folder)
