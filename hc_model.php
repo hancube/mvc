@@ -298,8 +298,11 @@ class HCModel{
                 Debug::ppp($this->data);
             }
 
-            if($stmt->rowCount() <= 0) {
+            $row_count = $stmt->rowCount();
+            if($row_count <= 0) {
                 return 'ERROR_DB_NO_AFFECTED';
+            }else {
+                $this->data['info']['row_count'] = $row_count;
             }
         } catch (PDOException $exc) {
             Debug::Error($exc);
@@ -519,8 +522,11 @@ class HCModel{
             }
             $stmt->execute();
 
-            if($stmt->rowCount() <= 0) {
+            $row_count = $stmt->rowCount();
+            if($row_count <= 0) {
                 return 'ERROR_DB_NO_AFFECTED';
+            }else {
+                $this->data['info']['row_count'] = $row_count;
             }
         } catch (PDOException $exc) {
             Debug::Error($exc);
@@ -653,8 +659,11 @@ class HCModel{
             }
             $stmt->execute();
 
-            if($stmt->rowCount() <= 0) {
+            $row_count = $stmt->rowCount();
+            if($row_count <= 0) {
                 return 'ERROR_DB_NO_AFFECTED';
+            }else {
+                $this->data['info']['row_count'] = $row_count;
             }
         } catch (PDOException $exc) {
             Debug::Error($exc);
@@ -1079,8 +1088,11 @@ class HCModel{
                     }
                     break;
                 default:
-                    if($stmt->rowCount() <= 0) {
+                    $row_count = $stmt->rowCount();
+                    if($row_count <= 0) {
                         return 'ERROR_DB_NO_AFFECTED';
+                    }else {
+                        $this->data['info']['row_count'] = $row_count;
                     }
                     break;
             }
