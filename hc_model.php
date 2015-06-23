@@ -60,6 +60,9 @@
  *              url           => TRUE,
  *              slug          => TRUE,
  *              file          => TRUE,
+ *              extensions    => array('jpg','gif'),
+ *              file_type    => array('text/csv', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/octet-stream', 'application/vnd.ms-excel'),
+ *              mime_content_type    => array('text/plain', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/octet-stream', 'application/vnd.ms-excel'),
  *              enum          => array(M,F),
  *              email         => TRUE,
  *              numeric       => TRUE,
@@ -83,11 +86,12 @@
  */
 
 class HCModel{
-    public $table;  // Representative Table
-    public $schema; // Table Fields Information
-    public $fields;  // Input Fields by Actions
-    public $ofields; // Output Fields by Actions
-    public $config; // Merged Fields Configuration for an Action
+    public $table;      // Representative Table
+    public $schema;     // Table Fields Information
+    public $fields;     // Input Fields by Actions
+    public $ofields;    // Output Fields by Actions
+    public $dfields;    // Fields by Document
+    public $config;     // Merged Fields Configuration for an Action
 
     public $controller;
     public $action;
@@ -157,7 +161,7 @@ class HCModel{
         }
         return true;
     }
-    public function insert($options = array(), $mode = '') {
+    public function insert($options = array(), $mode = '', $function_off = false) {
         Debug::ttt('HCModel::insert()');
         /*
         $options = array (
@@ -229,7 +233,7 @@ class HCModel{
         $values_memcache = '';
         foreach ($options['fields'] as $field => $value) {
             $fields .= $field.',';
-            if (strpos($value,'(') !== false || strpos($value,')') !== false ) {
+            if ($function_off === false && (strpos($value,'(') !== false || strpos($value,')') !== false)) {
                 $values .= $value.',';
                 $values_memcache .= $value.',';
             }else {
@@ -265,7 +269,7 @@ class HCModel{
         try {
             $stmt = $this->db->prepare($query);
             foreach ($options['fields'] as $field => $value) {
-                if (strpos($value,'(') !== false || strpos($value,')') !== false ) {
+                if ($function_off === false && (strpos($value,'(') !== false || strpos($value,')') !== false)) {
                     Debug::ppp(':'.$field.', '.$value);
                 }else {
                     $stmt->bindParam(':'.str_replace('.','_',$field), $options['fields'][$field]);
@@ -727,7 +731,7 @@ class HCModel{
              ),
              'orderby' => array (
                  array ('field1','asc'),
-                 array ('field1','desc'field1)
+                 array ('field1','desc')
              ),
              'limit' => array (0,10),
              'encrypt' => array(

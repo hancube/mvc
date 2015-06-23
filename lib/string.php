@@ -5,10 +5,12 @@ class String {
         if (is_array($html)) return $html;
         $html = str_replace('<', '&lt;', $html);
         $html = str_replace('>', '&gt;', $html);
-        /*$html = str_replace('"', '&quot;', $html);*/
-        /*$html = str_replace("'", '&apos;', $html);*/
         $text = stripslashes($html);
         return $text;
+    }
+    public static function removeSpecialCharaters($str){
+        $new_str = preg_replace('/[^A-Za-z0-9\-\.\_]/', '', $str);
+        return $new_str;
     }
     public static function SpaceForWeb($text){
         $text = str_replace(' ', '&nbsp;', $text);

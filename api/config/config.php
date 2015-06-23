@@ -2,8 +2,8 @@
 
     date_default_timezone_set("EST");
 
-    define('MVC_VERSION', '3.3.0');
-    define('MVC_CODE_VERSION', '3.3.0');
+    define('MVC_VERSION', '4.1.0');
+    define('MVC_CODE_VERSION', '4.1.0');
     define('API_FOLDER', 'api');
     define('API_PROTOCOL', 'http');
 
@@ -42,6 +42,14 @@
         define ('SERVICE', SERVICE_LOCAL);
     }
 
+    // For local
+    if (SERVICE == SERVICE_LOCAL) {
+        define ('API_PROTOCOL', 'http');
+        define ('WEBROOT', '/Users/sulim21/git/contributor_cpapi');
+        define ('ROOT', WEBROOT.'/'.API_FOLDER);
+        define ('HOME', API_PROTOCOL.'://'.DOMAIN.'/aol/contributor/'.API_FOLDER);
+    }
+
     // Database
     switch (SERVICE) {
         case SERVICE_LOCAL:
@@ -65,6 +73,11 @@
             define ('DB_USER', '');
             define ('DB_PASS', '');
             break;
+    }
+
+    // Protocol
+    if (!defined('API_PROTOCOL')) {
+        define ('API_PROTOCOL', 'https');
     }
 
     // Language

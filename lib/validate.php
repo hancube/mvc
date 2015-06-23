@@ -91,19 +91,55 @@ class Validate {
                 }
                 break;
             case 'url':
+                if (!preg_match("/\b(?:(?:https?|ftp):\/\/|www\.)[-a-z0-9+&@#\/%?=~_|!:,.;]*[-a-z0-9+&@#\/%=~_|]/i", $value)) {
+                    $return['result'] = FALSE;
+                    $return['error'] = 'ERROR_URL_FORMAT';
+                }
+                /*
+                // Below has problem with verifying
+                // https://plus.google.com/+Lemonsandbasil/posts
                 if (filter_var($value, FILTER_VALIDATE_URL) === FALSE) {
                     $return['result'] = FALSE;
                     $return['error'] = 'ERROR_URL_FORMAT';
                 }
+                */
                 break;
             case 'file':
                 if ($rule_value === TRUE) {
-                    if (!is_array($value)
-                        ||!isset($value['name'])
-                        ||empty($value['name'])) {
+                    if (!is_array($value) || !isset($value['name']) || empty($value['name'])) {
                         $return['result'] = FALSE;
                         $return['error'] = 'ERROR_FILE_FORMAT';
+                    }else if (!isset($value['size']) || empty($value['size'])) {
+                        $return['result'] = FALSE;
+                        $return['error'] = 'ERROR_FILE_SIZE_0';
                     }
+                }
+                break;
+            case 'extensions':
+                for ($tmp=0; $tmp<count($rule_value); $tmp++) {
+                    $rule_value[$tmp] = strtoupper($rule_value[$tmp]);
+                }
+                if (!in_array(strtoupper(pathinfo($value['name'], PATHINFO_EXTENSION)), $rule_value)) {
+                    $return['result'] = FALSE;
+                    $return['error'] = 'ERROR_NOT_ALLOWED_EXTENSION';
+                }
+                break;
+            case 'file_type':
+                for ($tmp=0; $tmp<count($rule_value); $tmp++) {
+                    $rule_value[$tmp] = strtoupper($rule_value[$tmp]);
+                }
+                if (!in_array(strtoupper($value['type']), $rule_value)) {
+                    $return['result'] = FALSE;
+                    $return['error'] = 'ERROR_NOT_ALLOWED_FILE_TYPE';
+                }
+                break;
+            case 'mime_content_type':
+                for ($tmp=0; $tmp<count($rule_value); $tmp++) {
+                    $rule_value[$tmp] = strtoupper($rule_value[$tmp]);
+                }
+                if (!in_array(strtoupper(mime_content_type($value['tmp_name'])), $rule_value)) {
+                    $return['result'] = FALSE;
+                    $return['error'] = 'ERROR_NOT_ALLOWED_MIME_TYPE';
                 }
                 break;
             case 'slug':
@@ -163,6 +199,19 @@ class Validate {
                 }else {
                     $return['result'] = FALSE;
                     $return['error'] = 'ERROR_DATETIME_FORMAT';
+                }
+                break;
+            case 'date_ym': /* YYYY-MM */
+                if (preg_match("/^(\d{4})-(\d{2})$/", $value, $matches)) {
+                    $yyyy = $matches[1];
+                    $mm = $matches[2];
+                    if (!checkdate($mm, '01', $yyyy)) {
+                        $return['result'] = FALSE;
+                        $return['error'] = 'ERROR_MONTH_FORMAT';
+                    }
+                }else {
+                    $return['result'] = FALSE;
+                    $return['error'] = 'ERROR_MONTH_FORMAT';
                 }
                 break;
         }

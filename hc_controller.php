@@ -94,17 +94,44 @@ class HCController{
 
         return true;
     }
+    public function runAction($action) {
+        Debug::ttt('HCController::runAction($action)');
+        $result = true;
 
+        if (method_exists($this, $action)) {
+            // run set model
+            $this->run();
+
+            // if the action fields are not defined, do not execute action.
+            if (isset($this->model->fields[$action])) {
+                if (!$this->isError()) {
+                    eval('$this->'.$action.'();');
+                }else {
+                    $result = false;
+                }
+            }else {
+                $result = false;
+            }
+        }else {
+            $result = false;
+        }
+
+        return $result;
+    }
     public function setArgs() {
         Debug::ttt('HCController::setArgs()');
 
         $this->args = Web::getArgs();
 
+        if (isset($this->args['v'])) {
+            $this->args['v'] = str_replace('..', '', $this->args['v']);
+        }
+
         foreach ($this->args as $key => $val) {
             $this->args[$key] = String::HtmlToTxt($val);
         }
         if (isset($this->args['p']) && !isset($this->args['s'])) {
-            $this->args['s'] = $this->args['p']*$this->args['l']-$this->args['l'];
+            $this->args['s'] = $this->args['p'] * $this->args['l'] - $this->args['l'];
         }else if (!isset($this->args['p']) && isset($this->args['s'])) {
             if ($this->args['s'] == 0) {
                 $this->args['p'] = 1;
@@ -136,6 +163,10 @@ class HCController{
             Debug::Error($e);
             return false;
         }
+        $this->clearDBInfo();
+        return true;
+    }
+    public function clearDBInfo() {
         $this->db->host = '';
         $this->db->port = '';
         $this->db->name = '';
@@ -175,7 +206,24 @@ class HCController{
 
         return true;
     }
+    public function setSLOD(& $args, & $model) {
+        Debug::ttt('HCController::setSLOD()');
+        if (isset($args['s']) && !empty($args['s'])) $model->start = $args['s'];
+        if (isset($args['l']) && !empty($args['l'])) $model->limit = $args['l'];
+        if (isset($args['o']) && !empty($args['o'])) {
+            if (isset($model->schema[$args['o']]['field']) && !empty($model->schema[$args['o']]['field'])) {
+                $model->orderby = $model->schema[$args['o']]['field'];
+            }else {
+                $model->orderby = $args['o'];
+            }
+        }
+        if (isset($args['d']) && !empty($args['d'])) $model->direction = $args['d'];
+        if (isset($args['i']) && !empty($args['i'])) $model->info = $args['i'];
 
+        if (!isset($model->start) || $model->start < 0) $model->start = 0;
+        if (!isset($model->limit) || $model->limit > SELECT_LIMIT) $model->limit = SELECT_LIMIT;
+        return true;
+    }
     public function addModel($controller, $action) {
         Debug::ttt('HCController::addModel('.$controller.', '.$action.')');
         if (empty($action)) return false;
@@ -198,25 +246,6 @@ class HCController{
         $model->memcache = & $this->memcache;
 
         return $model;
-    }
-
-    public function setSLOD(& $args, & $model) {
-        Debug::ttt('HCController::setSLOD()');
-        if (isset($args['s']) && !empty($args['s'])) $model->start = $args['s'];
-        if (isset($args['l']) && !empty($args['l'])) $model->limit = $args['l'];
-        if (isset($args['o']) && !empty($args['o'])) {
-            if (isset($model->schema[$args['o']]['field']) && !empty($model->schema[$args['o']]['field'])) {
-                $model->orderby = $model->schema[$args['o']]['field'];
-            }else {
-                $model->orderby = $args['o'];
-            }
-        }
-        if (isset($args['d']) && !empty($args['d'])) $model->direction = $args['d'];
-        if (isset($args['i']) && !empty($args['i'])) $model->info = $args['i'];
-
-        if (!isset($model->start) || $model->start < 0) $model->start = 0;
-        if (!isset($model->limit) || $model->limit > SELECT_LIMIT) $model->limit = SELECT_LIMIT;
-        return true;
     }
 
     public function Validate() {
@@ -302,7 +331,7 @@ class HCController{
             $filename = $this->args['v'];
         }
         if (OUTPUT_VERSION >= '2.0.0') {
-            $this->returnArgs();
+            $this->setReturnArgs();
         }
         $this->beforeRender();
         $this->staticRender($this->output, $filename);
@@ -310,11 +339,10 @@ class HCController{
         return true;
     }
     public function beforeRender() {}
-
     public function afterRender() {}
 
-    public function returnArgs() {
-        Debug::ttt('HCController::returnArgs()');
+    public function setReturnArgs() {
+        Debug::ttt('HCController::setReturnArgs()');
         if (!isset($this->model->config)) return false;
 
         if (defined('RETURN_ARGS') && RETURN_ARGS === TRUE) {
@@ -356,6 +384,10 @@ class HCController{
             if (!isset($callback) || empty($callback)) {
                 $callback = 'callback';
             }
+            // Sanitizing Callback Function Name
+            if (isset($callback) && !empty($callback)) {
+                $callback = String::removeSpecialCharaters($callback);
+            }
 
             echo $callback.'('.json_encode($output).')';
         }else if (Web::getArg('f') == 'xml') {
@@ -364,10 +396,36 @@ class HCController{
             }
             echo String::ArrayToXML ($output);
         }else if (Web::getArg('f') == 'html' && !empty($filename)) {
+            if (DEBUG <= 0 && TEST_CASE !== true) {
+                header('Content-type: text/html; charset=utf-8');
+            }
+            if((@include ROOT.'/views/'.Web::getArg('c').'/'.Web::getArg('a').'/'.$filename) === false) {
+                Controller::StaticError('INIT_ERRORS', 'ERROR_NO_VIEW_FILE');
+            }
+        }else if (Web::getArg('f') == 'xls' && !empty($filename)) {
+            if (DEBUG <= 0 && TEST_CASE !== true) {
+                $tmp = explode('/', $filename);
+                $download_filename = $tmp[count($tmp)-1];
+                header('Content-Disposition: attachment; filename='.$download_filename);
+                header('Content-type: application/vnd.ms-excel; charset=utf-8');
+            }
+            if((@include ROOT.'/views/'.Web::getArg('c').'/'.Web::getArg('a').'/'.$filename) === false) {
+                Controller::StaticError('INIT_ERRORS', 'ERROR_NO_VIEW_FILE');
+            }
+        }else if (Web::getArg('f') == 'xlsx' && !empty($filename)) {
+            if (DEBUG <= 0 && TEST_CASE !== true) {
+                $tmp = explode('/', $filename);
+                $download_filename = $tmp[count($tmp)-1];
+                header('Content-Disposition: attachment; filename='.$download_filename);
+                header('Content-type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet; charset=utf-8');
+            }
             if((@include ROOT.'/views/'.Web::getArg('c').'/'.Web::getArg('a').'/'.$filename) === false) {
                 Controller::StaticError('INIT_ERRORS', 'ERROR_NO_VIEW_FILE');
             }
         }else if (Web::getArg('f') == 'path' && !empty($filename)) {
+            if (DEBUG <= 0 && TEST_CASE !== true) {
+                header('Content-type: text/html; charset=utf-8');
+            }
             if((@include ROOT.'/views/'.$filename) === false) {
                 Controller::StaticError('INIT_ERRORS', 'ERROR_NO_VIEW_FILE');
             }

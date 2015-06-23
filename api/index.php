@@ -4,7 +4,6 @@ if (defined('ROOT')) {
 }else {
     require_once ('./config/config.php');
 }
-
 require_once (ROOT.'/lib/controller.php');
 require_once (ROOT.'/lib/model.php');
 
