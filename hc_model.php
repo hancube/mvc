@@ -51,7 +51,6 @@
  *          'pk'           => TRUE,
  *          'autoinc'      => TRUE,        // Auto Increase - if it's true, it's not adding on "insert" fields even it has a value
  *          'type'         => 'file',      // Input Type and Value Type
- *          'default'      => '0'00',
  *          'required'     => TRUE,
  *          'rules'        => array (
  *              date          => TRUE,      // YYYY-MM-DD
@@ -59,7 +58,6 @@
  *              datetime      => TRUE,      // YYYY-MM-DD HH:MI:SS
  *              url           => TRUE,
  *              slug          => TRUE,
- *              file          => TRUE,
  *              extensions    => array('jpg','gif'),
  *              file_type    => array('text/csv', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/octet-stream', 'application/vnd.ms-excel'),
  *              mime_content_type    => array('text/plain', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/octet-stream', 'application/vnd.ms-excel'),
@@ -75,6 +73,8 @@
  *
  *              uppercase     => TRUE,      // Transform the value
  *              lowercase     => TRUE,      // Transform the value
+ *              striptags     => TRUE,
+ *              htmlencode    => TRUE,
  *          ),
  *          'value'       => '2000',
  *          'value_from'  => 'userid',    // if the value is null, set the value from the sepecified id
@@ -85,10 +85,28 @@
 )
  */
 
-class HCModel{
+namespace hc\mvc;
+
+class Model{
     public $table;      // Representative Table
     public $schema;     // Table Fields Information
     public $fields;     // Input Fields by Actions
+    /*
+     *   public $ofields = array(
+     *      'is_mapped' => array(
+     *          'desc' => '',   // API description
+     *          'list' => TRUE, // Is the result type List?
+     *          'info' => array(
+     *              'field' => array (),
+     *              'field' => array (),
+     *          ),
+     *          'items' => array(
+     *              'field' => array (),
+     *              'field' => array (),
+     *          )
+     *      )
+     *  );
+     */
     public $ofields;    // Output Fields by Actions
     public $dfields;    // Fields by Document
     public $config;     // Merged Fields Configuration for an Action
@@ -97,18 +115,23 @@ class HCModel{
     public $action;
     public $data;
     public $db;
-    public $memcache;
+    public $memcached; // It's HCMemcached. Not PHP Memcached class.
 
     public $start;
     public $limit;
     public $orderby;
     public $direction;
     public $info;
+    public $arr_function = array('NOW()');
+    public $parenthesis = array(
+        'left' => '(',
+        'right' => ')',
+    );
 
     public $use_encryption = false;
 
     public function __construct($action) {
-        Debug::ttt('HCModel::__construct("'.$action.'")');
+        Debug::ttt('hc\mvc\Model::__construct("'.$action.'")');
 
         $this->action = $action;
 
@@ -122,8 +145,38 @@ class HCModel{
             unset($this->fields);
         }
     }
+    public function setValue($field, $value) {
+        Debug::ttt('hc\mvc\Model::setValue($field, $value)');
+        switch($field) {
+            case 'controller':
+                $this->controller = $value;
+                break;
+            case 'action':
+                $this->action = $value;
+                break;
+            case 'start':
+                $this->start = $value;
+                break;
+            case 'limit':
+                $this->limit = $value;
+                if (!isset($this->start)) $this->start = 0;
+                break;
+            case 'orderby':
+                $this->orderby = $value;
+                break;
+            case 'direction':
+                $this->direction = $value;
+                break;
+            default:
+                if (!isset($this->config[$field])) return false;
+                $this->config[$field]['value'] = $value;
+                break;
+        }
+
+        return true;
+    }
     public function setValues(& $args) {
-        Debug::ttt('HCModel::setValues()');
+        Debug::ttt('hc\mvc\Model::setValues()');
         if (!isset($this->config) || !is_array($this->config)) return false;
         if (isset($args['c'])) {
             $this->controller = $args['c'];
@@ -149,7 +202,7 @@ class HCModel{
         return true;
     }
     public function mergeConfig() {
-        Debug::ttt('HCModel::mergeConfig()');
+        Debug::ttt('hc\mvc\Model::mergeConfig()');
         if (empty($this->action)) return false;
         if (!isset($this->fields[$this->action]) || !is_array($this->fields[$this->action])) return false;
         foreach ($this->fields[$this->action] as $key => $val){
@@ -162,7 +215,7 @@ class HCModel{
         return true;
     }
     public function insert($options = array(), $mode = '', $function_off = false) {
-        Debug::ttt('HCModel::insert()');
+        Debug::ttt('hc\mvc\Model::insert()');
         /*
         $options = array (
             'table' => 'table1',
@@ -230,27 +283,27 @@ class HCModel{
 
         $fields = '';
         $values = '';
-        $values_memcache = '';
+        $values_memcached = '';
         foreach ($options['fields'] as $field => $value) {
             $fields .= $field.',';
-            if ($function_off === false && (strpos($value,'(') !== false || strpos($value,')') !== false)) {
+            if ($function_off === false && in_array(strtoupper($value), $this->arr_function)) {
                 $values .= $value.',';
-                $values_memcache .= $value.',';
+                $values_memcached .= $value.',';
             }else {
                 if ($this->use_encryption === true && isset($options['encrypt']) && in_array($field, $options['encrypt'])) {
                     $alias = str_replace('.','_',$field);
                     $values .= 'AES_ENCRYPT(:'.$alias.', SHA2(CONCAT(:PublicKey,:PrivateKey),512)),';
-                    $values_memcache .= 'AES_ENCRYPT("'.$value.'", SHA2(CONCAT(:PublicKey,:PrivateKey),512)),';
+                    $values_memcached .= 'AES_ENCRYPT("'.$value.'", SHA2(CONCAT(:PublicKey,:PrivateKey),512)),';
                     $encryption_key_bind = true;
                 }else {
                     $values .= ':'.str_replace('.','_',$field).',';
-                    $values_memcache .= '"'.$value.'",';
+                    $values_memcached .= '"'.$value.'",';
                 }
             }
         }
         $fields = substr($fields, 0, -1);
         $values = substr($values, 0, -1);
-        $values_memcache = substr($values_memcache, 0, -1);
+        $values_memcached = substr($values_memcached, 0, -1);
 
         $sql_cmd = '';
         switch ($mode) {
@@ -262,14 +315,14 @@ class HCModel{
                 break;
         }
         $query = $sql_cmd.' into '.$options['table'].' ('.$fields.') values ('.$values.')';
-        $query_memcache = $sql_cmd.' into '.$options['table'].' ('.$fields.') values ('.$values_memcache.')';
-        Debug::ppp($query);
-        Debug::ppp($query_memcache);
+        $query_memcached = $sql_cmd.' into '.$options['table'].' ('.$fields.') values ('.$values_memcached.')';
+        Debug::box($query);
+        Debug::box($query_memcached);
 
         try {
             $stmt = $this->db->prepare($query);
             foreach ($options['fields'] as $field => $value) {
-                if ($function_off === false && (strpos($value,'(') !== false || strpos($value,')') !== false)) {
+                if ($function_off === false && in_array(strtoupper($value), $this->arr_function)) {
                     Debug::ppp(':'.$field.', '.$value);
                 }else {
                     $stmt->bindParam(':'.str_replace('.','_',$field), $options['fields'][$field]);
@@ -315,8 +368,22 @@ class HCModel{
 
         return true;
     }
+    public function isSQLFuncIn($value) {
+        Debug::ttt('hc\mvc\Model::isSQLFuncIn()');
+        if (strpos($value,'(') !== false || strpos($value,')') !== false ) {
+            Debug::ppp('isSQLFuncIn()');
+            $matches = array();
+            preg_match('/([A-Z|a-z|0-9|_]+)\(/', $value, $matches);
+            Debug::ppp($matches);
+            if (isset($matches[1]) && $this->db->isMySQLFunc($matches[1])) {
+                return true;
+            }else {
+                return false;
+            }
+        }
+    }
     public function switchOperator($item) {
-        Debug::ttt('HCModel::switchOperator()');
+        Debug::ttt('hc\mvc\Model::switchOperator()');
         Debug::ppp($item);
         if (!isset($item[2])) return $item;
 
@@ -337,7 +404,7 @@ class HCModel{
         return $item;
     }
     public function update($options = array()) {
-        Debug::ttt('HCModel::update()');
+        Debug::ttt('hc\mvc\Model::update()');
         /*
          $options = array (
               'table' => 'table1',
@@ -416,7 +483,6 @@ class HCModel{
                 }
             }
         }
-
         if ($this->use_encryption === true && (!isset($options['encrypt'])
                 || (isset($options['encrypt']) && count($options['encrypt'])) <= 0)) {
             foreach ($this->config as $key => $item) {
@@ -427,13 +493,17 @@ class HCModel{
             }
         }
 
+        if (!isset($options['fields'])) {
+            return 'ERROR_DB_NO_AFFECTED';
+        }
+
         $set = '';
         foreach ($options['fields'] as $field => $value) {
             if (isset($options['encrypt_key']['private_field']) && $field == $options['encrypt_key']['private_field']) {
                 // Never update Private Key
                 continue;
             }
-            if (strpos($value,'(') !== false || strpos($value,')') !== false ) {
+            if (in_array(strtoupper($value), $this->arr_function)) {
                 $set .= $field.' = '.$value.',';
             }else {
                 if ($this->use_encryption === true && isset($options['encrypt']) && in_array($field, $options['encrypt'])) {
@@ -477,7 +547,8 @@ class HCModel{
                     $where .= ') ';
                 }else {
                     // Case of including mysql functions
-                    if (strpos($value,'(') !== false || strpos($value,')') !== false ) {
+                    //if (strpos($value,'(') !== false || strpos($value,')') !== false ) {
+                    if (in_array(strtoupper($value), $this->arr_function)) {
                         $where .= $value;
                     }else {
                         $where .= ' :w'.$i;
@@ -487,35 +558,44 @@ class HCModel{
         }
         $query = 'update '.$options['table'].' set '.$set.' '.$where;
 
-        Debug::ppp($query);
+        Debug::box($query);
         Debug::ppp($options);
 
         try {
             $stmt = $this->db->prepare($query);
             foreach ($options['fields'] as $field => $value) {
-                if (strtoupper($options['fields'][$field]) == 'NULL') {
-                    $options['fields'][$field] = NULL;
-                }
-                if (strpos($value,'(') !== false || strpos($value,')') !== false ) {
+                if (in_array(strtoupper($value), $this->arr_function)) {
+                    // if update value contains parenthesis, then do not bind
                     Debug::ppp(':'.$field.', '.$value);
+                }else if (strtoupper($options['fields'][$field]) == 'NULL') {
+                    // if update value is null then bind as NULL
+                    Debug::ppp(':'.str_replace('.','_',$field).', '.$options['fields'][$field]);
+                    $stmt->bindValue(':'.str_replace('.','_',$field), NULL, \PDO::PARAM_NULL);
                 }else {
+                    // the rest of them will be bind
                     $stmt->bindParam(':'.str_replace('.','_',$field), $options['fields'][$field]);
                     Debug::ppp(':'.str_replace('.','_',$field).', '.$options['fields'][$field]);
                 }
-                // I don't know why it doesn't work below:
+                // I don't know why it doesn't work like below:
                 // $stmt->bindParam(':'.$field, $value);
             }
             if (isset($options['where'])) {
                 for ($i=0; $i<count($options['where']); $i++) {
                     if (is_array($options['where'][$i][3])) {
                         for ($ii=0; $ii<count($options['where'][$i][3]); $ii++) {
-                            if (strtoupper($options['where'][$i][3][$ii]) == 'NULL') $options['where'][$i][3][$ii] = NULL;
-                            $stmt->bindParam(':w'.$i.'a'.$ii, $options['where'][$i][3][$ii]);
+                            if (strtoupper($options['where'][$i][3][$ii]) == 'NULL') {
+                                $stmt->bindValue(':w'.$i.'a'.$ii, NULL, \PDO::PARAM_NULL);
+                            }else {
+                                $stmt->bindParam(':w'.$i.'a'.$ii, $options['where'][$i][3][$ii]);
+                            }
                             Debug::ppp(':w'.$i.'a'.$ii.', '.$options['where'][$i][3][$ii]);
                         }
                     }else {
-                        if (strtoupper($options['where'][$i][3]) == 'NULL') $options['where'][$i][3] = NULL;
-                        $stmt->bindParam(':w'.$i, $options['where'][$i][3]);
+                        if (strtoupper($options['where'][$i][3]) == 'NULL') {
+                            $stmt->bindValue(':w'.$i, NULL, \PDO::PARAM_NULL);
+                        }else {
+                            $stmt->bindParam(':w'.$i, $options['where'][$i][3]);
+                        }
                         Debug::ppp(':w'.$i.', '.$options['where'][$i][3]);
                     }
                 }
@@ -540,7 +620,7 @@ class HCModel{
         return true;
     }
     public function delete($options = array()) {
-        Debug::ttt('HCModel::delete()');
+        Debug::ttt('hc\mvc\Model::delete()');
         /*
         $options = array (
             'table' => 'table1',
@@ -637,7 +717,8 @@ class HCModel{
                     $where .= ') ';
                 }else {
                     // Case of including mysql functions
-                    if (strpos($value,'(') !== false || strpos($value,')') !== false ) {
+                    //if (strpos($value,'(') !== false || strpos($value,')') !== false ) {
+                    if (in_array(strtoupper($value), $this->arr_function)) {
                         $where .= $value;
                     }else {
                         $where .= ' :w'.$i;
@@ -647,15 +728,32 @@ class HCModel{
         }
 
         $query = 'delete from '.$options['table'].' '.$where;
-        Debug::ppp($query);
+        Debug::box($query);
         Debug::ppp($options);
 
         try {
             $stmt = $this->db->prepare($query);
+            /*
             for ($i=0; $i<count($options['where']); $i++) {
-                if (strtoupper($options['where'][$i][3]) == 'NULL') $options['where'][$i][3] = NULL;
+                if (is_string($options['where'][$i][3]) && strtoupper($options['where'][$i][3]) == 'NULL') $options['where'][$i][3] = NULL;
                 $stmt->bindParam(':w'.$i, $options['where'][$i][3]);
                 Debug::ppp(':w'.$i.', '.$options['where'][$i][3]);
+            }*/
+            if (isset($options['where'])) {
+                for ($i=0; $i<count($options['where']); $i++) {
+                    if (is_array($options['where'][$i][3])) {
+                        $options['where'][$i][3] = array_values($options['where'][$i][3]);
+                        for ($ii=0; $ii<count($options['where'][$i][3]); $ii++) {
+                            if (strtoupper($options['where'][$i][3][$ii]) == 'NULL') $options['where'][$i][3][$ii] = NULL;
+                            $stmt->bindParam(':w'.$i.'a'.$ii, $options['where'][$i][3][$ii]);
+                            Debug::ppp(':w'.$i.'a'.$ii.', '.$options['where'][$i][3][$ii]);
+                        }
+                    }else {
+                        if (strtoupper($options['where'][$i][3]) == 'NULL') $options['where'][$i][3] = NULL;
+                        $stmt->bindParam(':w'.$i, $options['where'][$i][3]);
+                        Debug::ppp(':w'.$i.', '.$options['where'][$i][3]);
+                    }
+                }
             }
             if ($this->use_encryption === true && $encryption_key_bind === true) {
                 Debug::ppp(':PublicKey, '.$options['encrypt_key']['public_key']);
@@ -703,8 +801,19 @@ class HCModel{
 
         return $result;
     }
+    public function select_option($options = array()) {
+        Debug::ttt('hc\mvc\Model::select_option()');
+        // Not to get affected by other parameters
+        if (!isset($options['where'])) { $options['where'] = array(); }
+        if (!isset($options['groupby'])) { $options['groupby'] = array(); }
+        if (!isset($options['orderby'])) { $options['orderby'] = array(); }
+        if (!isset($options['limit'])) { $options['limit'] = array(); }
+        if (!isset($options['encrypt_key'])) { $options['encrypt_key'] = array(); }
+
+        return $this->select($options);
+    }
     public function select($options = array()) {
-        Debug::ttt('HCModel::select()');
+        Debug::ttt('hc\mvc\Model::select()');
         /*
         $options = array (
              'select' => array (
@@ -759,7 +868,6 @@ class HCModel{
                 }
             }
         }
-        Debug::ppp($options);
 
         if (!isset($options['where'])
             || isset($options['where'])
@@ -806,26 +914,29 @@ class HCModel{
             for ($i=0; $i<count($options['select']); $i++) {
                 $field = $options['select'][$i];
 
-                    if (preg_match('/^([^\.]*\.?[^ ]+)[ |\t]+as[ |\t]+(.+)$/i', $field, $matches)) {
-                        $field_name = $matches[1];
-                        $field_alias = $matches[2];
-                        // 1. Table.Field as alias
-                        if ($this->use_encryption === true && isset($options['encrypt']) && in_array($field_name, $options['encrypt'])) {
-                            $encryption_key_bind = true;
-                            $select .= 'AES_DECRYPT('.$field_name.', SHA2(CONCAT(:PublicKey, '.$options['encrypt_key']['private_field'].'),512)) as '.$field_alias.',';
+                if (preg_match('/^([^\.]*\.?[^ ]+)[ |\t]+as[ |\t]+(.+)$/i', $field, $matches)) {
+                    $field_name = $matches[1];
+                    $field_alias = $matches[2];
+                    // 1. Table.Field as alias
+                    if ($this->use_encryption === true && isset($options['encrypt']) && in_array($field_name, $options['encrypt'])) {
+                        $encryption_key_bind = true;
+                        $select .= ' AES_DECRYPT('.$field_name.', SHA2(CONCAT(:PublicKey, '.$options['encrypt_key']['private_field'].'),512)) as '.$field_alias.',';
 
-                        }else {
-                            $select .= ''.$field.',';
-                        }
                     }else {
-                        if ($this->use_encryption === true && isset($options['encrypt']) && in_array($field, $options['encrypt'])) {
-                            $encryption_key_bind = true;
-                            $select .= 'AES_DECRYPT('.$field.', SHA2(CONCAT(:PublicKey, '.$options['encrypt_key']['private_field'].'),512)) as '.$field.',';
-                        }else {
-                            $select .= ''.$field.',';
-                        }
-
+                        $select .= ' '.$field;
                     }
+                }else {
+                    if ($this->use_encryption === true && isset($options['encrypt']) && in_array($field, $options['encrypt'])) {
+                        $encryption_key_bind = true;
+                        $select .= ' AES_DECRYPT('.$field.', SHA2(CONCAT(:PublicKey, '.$options['encrypt_key']['private_field'].'),512)) as '.$field.',';
+                    }else {
+                        $select .= ' '.$field;
+                    }
+                }
+                if ($i != count($options['select']) - 1) {
+                    $select .= ",";
+                }
+                $select .= "\n";
             }
         }
         $select = substr($select, 0, -1);
@@ -833,14 +944,14 @@ class HCModel{
         $from = '';
         if (isset($options['from'])) {
             for ($i=0; $i<count($options['from']); $i++) {
-                $from .= ' '.$options['from'][$i];
+                $from .= ' '.$options['from'][$i].= "\n";
             }
         }else {
             $from = $this->table;
         }
 
-        $query_memcache  = ' select '.$select;
-        $query_memcache .= ' from '.$from;
+        $query_memcached  = ' select '.$select."\n";
+        $query_memcached .= ' from '.$from."\n";
 
         $where = '';
         if (isset($options['where'])) {
@@ -879,29 +990,34 @@ class HCModel{
                         $where .= ' :w'.$i.'a'.$ii.',';
                     }
                     $where = substr($where, 0, -1);
-                    $where .= ') ';
+                    $where .= ') '."\n";
                 }else {
                     // Case of including mysql functions
-                    if (strpos($value,'(') !== false || strpos($value,')') !== false ) {
+                    //if (strpos($value,'(') !== false || strpos($value,')') !== false ) {
+                    if ($this->isSQLFuncIn($value)) {
                         $where .= $value;
                     }else {
-                        $where .= ' :w'.$i;
+                        $where .= ' :w'.$i."\n";
                     }
                 }
 
-                $query_memcache .= ' '.$conjunction;
-                $query_memcache .= ' '.$field.'';
-                $query_memcache .= ' '.$operator;
+                $query_memcached .= ' '.$conjunction;
+                $query_memcached .= ' '.$field;
+                $query_memcached .= ' '.$operator;
 
                 if (is_array($options['where'][$i][3])) {
-                    $query_memcache .= ' (';
+                    $query_memcached .= ' (';
                     for ($ii=0; $ii<count($options['where'][$i][3]); $ii++) {
-                        $query_memcache .= ' "'.$options['where'][$i][3][$ii].'",';
+                        $query_memcached .= ' "'.$options['where'][$i][3][$ii].'",';
                     }
-                    $query_memcache = substr($query_memcache, 0, -1);
-                    $query_memcache .= ') ';
+                    $query_memcached = substr($query_memcached, 0, -1);
+                    $query_memcached .= ') '."\n";
                 } else {
-                    $query_memcache .= ' '.$options['where'][$i][3];
+                    if (strtoupper($options['where'][$i][3] == 'NULL')) {
+                        $query_memcached .= " ".$options['where'][$i][3]."\n";
+                    }else {
+                        $query_memcached .= " '".$options['where'][$i][3]."'\n";
+                    }
                 }
             }
         }
@@ -914,7 +1030,7 @@ class HCModel{
                 }else {
                     $groupby .= ',';
                 }
-                $groupby .= $options['groupby'][$i];
+                $groupby .= $options['groupby'][$i]."\n";
             }
         }
 
@@ -930,46 +1046,40 @@ class HCModel{
             }
         }else if (isset($this->orderby)) {
             if (!isset($this->direction)) $this->direction = 'ASC';
-            $orderby = ' order by '.$this->orderby.' '.$this->direction;
+            $orderby = ' order by '.$this->orderby.' '.$this->direction."\n";
         }
 
         $limit = '';
-        if (isset($options['limit']) && !empty($options['limit'])) {
-            $limit .= $options['limit'][$i][0];
-            if (isset($options['limit'][$i][1])) {
-                $limit .= ', '.$options['limit'][$i][1];
+        if (isset($options['limit'])) { // when  it's set as empty, it means did get affected by auto selection
+            if (!empty($options['limit'])) {
+                $limit .= ' limit '.$options['limit'][0];
+                if (isset($options['limit'][1])) {
+                    $limit .= ', '.$options['limit'][1]."\n";
+                }
             }
         }else if (isset($this->start) && isset($this->limit)) {
-            $limit = ' limit '.$this->start.', '.$this->limit;
+            $limit = ' limit '.$this->start.', '.$this->limit."\n";
         }
 
         $SQL_CALC_FOUND_ROWS = '';
         if (isset($this->info) && strpos($this->info, 't') !== false) {
             $SQL_CALC_FOUND_ROWS = ' SQL_CALC_FOUND_ROWS ';
         }
-        $query  = ' select '.$SQL_CALC_FOUND_ROWS.$select;
-        $query .= ' from '.$from;
-        $query .= ' '.$where;
-        $query .= ' '.$groupby;
-        $query .= ' '.$orderby;
-        $query .= ' '.$limit;
+        $query  = ' select '.$SQL_CALC_FOUND_ROWS.$select."\n";
+        $query .= ' from '.$from."\n";
+        $query .= ' '.$where."\n";
+        $query .= ' '.$groupby."\n";
+        $query .= ' '.$orderby."\n";
+        $query .= ' '.$limit."\n";
 
-        $query_memcache .= ' '.$orderby;
-        $query_memcache .= ' '.$limit;
-        Debug::ppp($query);
-        Debug::ppp($query_memcache);
+        $query_memcached .= ' '.$groupby."\n";
+        $query_memcached .= ' '.$orderby."\n";
+        $query_memcached .= ' '.$limit."\n";
 
-        if (USE_MEMCACHE) {
-            try {
-                $cached_data = $this->memcache->get($query_memcache);
-            } catch (Exception $e) {
-                return $e;
-            }
-        }
+        Debug::box($query);
 
-        if (isset($cached_data) && is_array($cached_data)) {
-            Debug::ppp('HCModel::select::Memcached_data', 'Fuchsia');
-            Debug::ppp('MemCache_key: '.$query_memcache, 'Fuchsia');
+        if (USE_MEMCACHED && ($cached_data = $this->memcached->get(DB_NAME.$query_memcached))) {
+            Debug::ppp('hc\mvc\Model::select::Memcached_data', 'Fuchsia');
             switch (OUTPUT_VERSION) {
                 case '1.0.0':
                     $this->data = $cached_data;
@@ -978,7 +1088,7 @@ class HCModel{
                     $this->data['items'] = $cached_data;
                     break;
             }
-            Debug::ppp($this->data, 'Fuchsia');
+            Debug::ppp($cached_data, 'Fuchsia');
         }else {
             try {
                 $stmt = $this->db->prepare($query);
@@ -991,13 +1101,19 @@ class HCModel{
                                 Debug::ppp(':w'.$i.'a'.$ii.', '.$options['where'][$i][3][$ii]);
                             }
                         }else {
+                            if (strtoupper($options['where'][$i][3]) == 'NULL') $options['where'][$i][3] = NULL;
                             if (strpos($options['where'][$i][3],'(') !== false || strpos($options['where'][$i][3],')') !== false ) {
-                                // bind pass
+                                if ($this->isSQLFuncIn($options['where'][$i][3])) {
+                                    // bind pass
+                                    Debug::ppp('bind pass');
+                                }else {
+                                    $stmt->bindParam(':w'.$i, $options['where'][$i][3]);
+                                    Debug::ppp(':w'.$i.', '.$options['where'][$i][3]);
+                                }
                             }else {
-                                if (strtoupper($options['where'][$i][3]) == 'NULL') $options['where'][$i][3] = NULL;
                                 $stmt->bindParam(':w'.$i, $options['where'][$i][3]);
+                                Debug::ppp(':w'.$i.', '.$options['where'][$i][3]);
                             }
-                            Debug::ppp(':w'.$i.', '.$options['where'][$i][3]);
                         }
                     }
                 }
@@ -1005,29 +1121,33 @@ class HCModel{
                     Debug::ppp(':PublicKey, '.$options['encrypt_key']['public_key']);
                     $stmt->bindParam(':PublicKey', $options['encrypt_key']['public_key']);
                 }
-                $stmt->execute();
+                try {
+                    $stmt->execute();
+                } catch (Exception $e) {
+                    Debug::ppp($stmt);
+                }
 
                 switch (OUTPUT_VERSION) {
                     case '1.0.0':
-                        $this->data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                        $this->data = $stmt->fetchAll(\PDO::FETCH_ASSOC);
                         break;
                     case '2.0.0':
-                        $this->data['items'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                        $this->data['items'] = $stmt->fetchAll(\PDO::FETCH_ASSOC);
                         break;
                 }
 
-                if (USE_MEMCACHE) {
+                if (USE_MEMCACHED) {
                     try {
                         switch (OUTPUT_VERSION) {
                             case '1.0.0':
-                                $this->memcache->set($query_memcache, $this->data, false, 60);
+                                $memcached_data = $this->data;
                                 break;
                             case '2.0.0':
-                                $this->memcache->set($query_memcache, $this->data['items'], false, 60);
+                                $memcached_data = $this->data['items'];
                                 break;
                         }
 
-                        Debug::ppp($query_memcache, 'Fuchsia');
+                        $this->memcached->set(DB_NAME.$query_memcached, $memcached_data);
                     } catch (Exception $e) {}
                 }
 
@@ -1036,6 +1156,7 @@ class HCModel{
                 return 'ERROR_DB_SELECT';
             }
         }
+        Debug::box($query_memcached);
 
         switch (OUTPUT_VERSION) {
             case '1.0.0':
@@ -1060,7 +1181,7 @@ class HCModel{
     }
 
     public function query($query = '', $bind = array()) {
-        Debug::ttt('HCModel::query($query, $bind)');
+        Debug::ttt('hc\mvc\Model::query($query, $bind)');
         if (empty($query)) return false;
         $command = strtoupper(substr(trim($query), 0, 6));
         if (isset($this->info) && strpos($this->info, 't') !== false && $command == 'SELECT' && strpos($query, 'FOUND_ROWS') === false) {
@@ -1084,10 +1205,10 @@ class HCModel{
                 case 'SELECT':
                     switch (OUTPUT_VERSION) {
                         case '1.0.0':
-                            $this->data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                            $this->data = $stmt->fetchAll(\PDO::FETCH_ASSOC);
                             break;
                         default:
-                            $this->data['items'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                            $this->data['items'] = $stmt->fetchAll(\PDO::FETCH_ASSOC);
                             break;
                     }
                     break;
@@ -1127,7 +1248,7 @@ class HCModel{
         return true;
     }
     public function get_search_fields($prefix = '') {
-        Debug::ttt('HCModel::get_search_fields()');
+        Debug::ttt('hc\mvc\Model::get_search_fields()');
 
         $arr_search_fields = array();
         foreach ($this->schema as $key => $val) {
@@ -1147,7 +1268,7 @@ class HCModel{
         return $arr_search_fields;
     }
     public function get_total() {
-        Debug::ttt('HCModel::get_total()');
+        Debug::ttt('hc\mvc\Model::get_total()');
         // After Specifying SQL_CALC_FOUND_ROWS in your select query
         // i.e.) select SQL_CALC_FOUND_ROWS * from Table
         $tmp = $this->data;

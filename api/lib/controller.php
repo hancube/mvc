@@ -5,7 +5,7 @@
 require_once (MVC_LIB.'/hc_controller.php');
 
 
-class Controller extends HCController{
+class Controller extends hc\mvc\Controller{
 
 }
 ?>

@@ -38,6 +38,7 @@
  * This is a BSD License approved by the Open Source Initiative (OSI).
  * See:  http://www.opensource.org/licenses/bsd-license.php
  */
+namespace hc\mvc;
 
 require_once (MVC_LIB.'/lib/version.php');
 require_once (MVC_LIB.'/lib/debug.php');
@@ -45,8 +46,10 @@ require_once (MVC_LIB.'/lib/db.php');
 require_once (MVC_LIB.'/lib/string.php');
 require_once (MVC_LIB.'/lib/web.php');
 require_once (MVC_LIB.'/lib/validate.php');
+require_once (MVC_LIB.'/lib/json_encode.php');
+if (USE_MEMCACHED) require_once (MVC_LIB.'/lib/memcached.php');
 
-class HCController{
+class Controller{
     public $args = array(
         'c'=>'',    // controller
         'a'=>'',    // action
@@ -65,29 +68,36 @@ class HCController{
     public $action;
 
     public $db;
-    public $memcache;
+    public $memcached;
     public $model;
 
-    public $output;
+    public $output = array(
+        'result' => 0
+    );
     public $messages;
 
     public function __construct() {
-        Debug::ttt('HCController::construct()');
+        Debug::ttt('hc\mvc\Controller::construct()');
         $this->setArgs();
         return true;
     }
 
     public function run() {
-        Debug::ttt('HCController::run()');
+        Debug::ttt('hc\mvc\Controller::run()');
 
-        if (!$this->setDB()) {
+        try{
+            if (!$this->setDB()) {
+                $this->Error('DB_ERRORS', 'ERROR_DB_CONNECTION');
+                return false;
+            }
+        }catch (PDOException $e) {
             $this->Error('DB_ERRORS', 'ERROR_DB_CONNECTION');
             return false;
         }
-        if (USE_MEMCACHE === true) $this->setMemcache();
+        if (USE_MEMCACHED === true) $this->setMemcached();
         $this->setMessages();
         $this->setModel();
-        if (!$this->Validate()) {
+        if (!$this->Validate($this->model->config)) {
             $this->Error('INPUT_ERRORS');
             return false;
         }
@@ -95,22 +105,25 @@ class HCController{
         return true;
     }
     public function runAction($action) {
-        Debug::ttt('HCController::runAction($action)');
+        Debug::ttt('hc\mvc\Controller::runAction($action)');
         $result = true;
-
         if (method_exists($this, $action)) {
             // run set model
             $this->run();
-
             // if the action fields are not defined, do not execute action.
-            if (isset($this->model->fields[$action])) {
+            if (isset($this->model->config)) {
                 if (!$this->isError()) {
-                    eval('$this->'.$action.'();');
+                    try {
+                        eval('$this->'.$action.'();');
+                    }catch (ErrorException $e) {
+                        $result = 'ERROR_NO_ACTION';
+                    }
                 }else {
-                    $result = false;
+                    return $this->output['errors']['code'];
                 }
             }else {
-                $result = false;
+                $this->output['errors']['code'] = 'ERROR_NO_ACTION_FIELDS_DEFINED';
+                return $this->output['errors']['code'];
             }
         }else {
             $result = false;
@@ -119,7 +132,7 @@ class HCController{
         return $result;
     }
     public function setArgs() {
-        Debug::ttt('HCController::setArgs()');
+        Debug::ttt('hc\mvc\Controller::setArgs()');
 
         $this->args = Web::getArgs();
 
@@ -127,9 +140,6 @@ class HCController{
             $this->args['v'] = str_replace('..', '', $this->args['v']);
         }
 
-        foreach ($this->args as $key => $val) {
-            $this->args[$key] = String::HtmlToTxt($val);
-        }
         if (isset($this->args['p']) && !isset($this->args['s'])) {
             $this->args['s'] = $this->args['p'] * $this->args['l'] - $this->args['l'];
         }else if (!isset($this->args['p']) && isset($this->args['s'])) {
@@ -148,17 +158,19 @@ class HCController{
         return $this->setExtraArgs();
     }
     public function setExtraArgs() {
-        Debug::ttt('HCController::setExtraArgs()');
+        Debug::ttt('hc\mvc\Controller::setExtraArgs()');
 
     }
     public function setDB() {
-        Debug::ttt('HCController::setDB()');
+        Debug::ttt('hc\mvc\Controller::setDB()');
         try {
-            $this->db = new DB();
+            $this->db = new DB(DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS);
             if (!$this->db) {
                 Debug::Error('ERROR_DB_CONNECTION');
                 return false;
             }
+            $stmt = $this->db->prepare("SET character_set_connection = 'utf8'");
+            $stmt->execute();
         } catch (PDOException $e) {
             Debug::Error($e);
             return false;
@@ -175,39 +187,60 @@ class HCController{
 
         return true;
     }
-    public function setMemcache() {
-        Debug::ttt('HCController::setMemcache()');
-        $this->memcache = new Memcache;
-        $this->memcache->connect(MEMCACHE_HOST, MEMCACHE_PORT) or die ("Could not connect to Memcache Server");
+    public function setMemcached() {
+        Debug::ttt('hc\mvc\Controller::setMemcached()');
+        global $_MEMCACHED_HOST;
+        Debug::ppp($_MEMCACHED_HOST);
+
+        if (!class_exists('Memcached')) return true;
+        if (isset($this->memcached)) return true;
+
+        $this->memcached = new Memcached($_MEMCACHED_HOST, MEMCACHED_PORT, MEMCACHED_TIME);
+
         return true;
     }
-    public function setModel() {
-        Debug::ttt('HCController::setModel()');
-        if (empty($this->action)) return false;
+    public function getModel($controller, $action, &$db = NULL, &$args = NULL) {
+        Debug::ttt('hc\mvc\Controller::getModel('.$controller.', '.$action.')');
+        if (empty($action)) return false;
 
-        $model_file = ROOT.'/models/'.$this->controller.'_model.php';
+        $model_file = API_ROOT.'/models/'.$controller.'_model.php';
         if (!file_exists($model_file)) {
             return false;
         }
-
         require_once ($model_file);
 
         try {
-            eval('$this->model = new '.ucwords($this->controller).'Model(\''.$this->action.'\');');
-            $this->model->setValues($this->args);
+            $model_class = Web::getClassName($controller);
+            $model_class .= 'Model';
+            eval('$model = new '.$model_class.'(\''.$action.'\');');
+            if ($args !== NULL) {
+                $model->setValues($this->args);
+            }
         } catch (Exception $exc) {
             Debug::Error($exc);
             return false;
         }
 
-        $this->model->db = & $this->db;
-        $this->model->memcache = & $this->memcache;
+        if (is_null($db)) {
+            $model->db = & $this->db;
+        }else {
+            $model->db = & $db;
+        }
+
+        $model->memcached = & $this->memcached;
+
+        return $model;
+    }
+    public function setModel() {
+        Debug::ttt('hc\mvc\Controller::setModel()');
+
+        $this->model = $this->getModel($this->controller, $this->action, $this->db, $this->args);
         $this->setSLOD($this->args, $this->model);
 
         return true;
     }
     public function setSLOD(& $args, & $model) {
-        Debug::ttt('HCController::setSLOD()');
+        Debug::ttt('hc\mvc\Controller::setSLOD()');
         if (isset($args['s']) && !empty($args['s'])) $model->start = $args['s'];
         if (isset($args['l']) && !empty($args['l'])) $model->limit = $args['l'];
         if (isset($args['o']) && !empty($args['o'])) {
@@ -224,38 +257,13 @@ class HCController{
         if (!isset($model->limit) || $model->limit > SELECT_LIMIT) $model->limit = SELECT_LIMIT;
         return true;
     }
-    public function addModel($controller, $action) {
-        Debug::ttt('HCController::addModel('.$controller.', '.$action.')');
-        if (empty($action)) return false;
-
-        $model_file = ROOT.'/models/'.$controller.'_model.php';
-        if (!file_exists($model_file)) {
-            return false;
-        }
-        require_once ($model_file);
-
-        try {
-            eval('$model = new '.ucwords($controller).'Model(\''.$action.'\');');
-            //$model->setValues($this->args); - 2014-09-12 removed
-        } catch (Exception $exc) {
-            Debug::Error($exc);
-            return false;
-        }
-
-        $model->db = & $this->db;
-        $model->memcache = & $this->memcache;
-
-        return $model;
-    }
-
-    public function Validate() {
-        Debug::ttt('HCController::Validate()');
+    public function Validate(& $config) {
+        Debug::ttt('hc\mvc\Controller::Validate()');
         if ($this->isError()) return false;
         if (empty($this->action)) return true;
-        if (!isset($this->model->config)) return true;
+        if (!isset($config)) return true;
 
         $ok = true;
-        $config = & $this->model->config;
         foreach($config as $field => $options) {
             Debug::ppp($field);
             Debug::ppp($options);
@@ -319,13 +327,13 @@ class HCController{
     public function extraValidate() {return true;}
 
     public function setMessages() {
-        Debug::ttt('HCController::setMessages()');
-        $ini_file = ROOT.'/lang/'.LANG.'/message.ini';
+        Debug::ttt('hc\mvc\Controller::setMessages()');
+        $ini_file = API_ROOT.'/lang/'.LANG.'/message.ini';
         $this->messages = parse_ini_file($ini_file);
         return true;
     }
     public function Render($filename = '') {
-        Debug::ttt('HCController::Render('.$filename.')');
+        Debug::ttt('hc\mvc\Controller::Render('.$filename.')');
 
         if (isset($this->args['v']) && !empty($this->args['v'])) {
             $filename = $this->args['v'];
@@ -342,7 +350,7 @@ class HCController{
     public function afterRender() {}
 
     public function setReturnArgs() {
-        Debug::ttt('HCController::setReturnArgs()');
+        Debug::ttt('hc\mvc\Controller::setReturnArgs()');
         if (!isset($this->model->config)) return false;
 
         if (defined('RETURN_ARGS') && RETURN_ARGS === TRUE) {
@@ -353,7 +361,7 @@ class HCController{
     }
 
     public static function staticRender($output, $filename='') {
-        Debug::ttt('HCController::staticRender()');
+        Debug::ttt('hc\mvc\Controller::staticRender()');
 
         if (OUTPUT_VERSION == '1.0.0') {
             $data = $output;
@@ -370,7 +378,8 @@ class HCController{
             if (DEBUG <= 0 && TEST_CASE !== true) {
                 header('Content-type: text/json; charset=utf-8');
             }
-            echo json_encode($output);
+            $je = new JSONEncode();
+            echo $je->runEncode($output);
             return true;
         }else if (Web::getArg('f') == 'jsonp') {
             if (DEBUG <= 0 && TEST_CASE !== true) {
@@ -388,8 +397,8 @@ class HCController{
             if (isset($callback) && !empty($callback)) {
                 $callback = String::removeSpecialCharaters($callback);
             }
-
-            echo $callback.'('.json_encode($output).')';
+            $je = new JSONEncode();
+            echo $callback.'('.$je->runEncode($output).')';
         }else if (Web::getArg('f') == 'xml') {
             if (DEBUG <= 0 && TEST_CASE !== true) {
                 header('Content-type: text/xml; charset=utf-8');
@@ -399,7 +408,7 @@ class HCController{
             if (DEBUG <= 0 && TEST_CASE !== true) {
                 header('Content-type: text/html; charset=utf-8');
             }
-            if((@include ROOT.'/views/'.Web::getArg('c').'/'.Web::getArg('a').'/'.$filename) === false) {
+            if((@include API_ROOT.'/views/'.Web::getArg('c').'/'.Web::getArg('a').'/'.$filename) === false) {
                 Controller::StaticError('INIT_ERRORS', 'ERROR_NO_VIEW_FILE');
             }
         }else if (Web::getArg('f') == 'xls' && !empty($filename)) {
@@ -409,7 +418,11 @@ class HCController{
                 header('Content-Disposition: attachment; filename='.$download_filename);
                 header('Content-type: application/vnd.ms-excel; charset=utf-8');
             }
-            if((@include ROOT.'/views/'.Web::getArg('c').'/'.Web::getArg('a').'/'.$filename) === false) {
+            if(count($tmp) > 1 && file_exists(ROOT.'/views/'.$filename) === true) {
+                include ROOT.'/views/'.$filename;
+            } else if(file_exists(ROOT.'/views/'.Web::getArg('c').'/'.Web::getArg('a').'/'.$filename) === true) {
+                include ROOT.'/views/'.Web::getArg('c').'/'.Web::getArg('a').'/'.$filename;
+            } else {
                 Controller::StaticError('INIT_ERRORS', 'ERROR_NO_VIEW_FILE');
             }
         }else if (Web::getArg('f') == 'xlsx' && !empty($filename)) {
@@ -419,14 +432,18 @@ class HCController{
                 header('Content-Disposition: attachment; filename='.$download_filename);
                 header('Content-type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet; charset=utf-8');
             }
-            if((@include ROOT.'/views/'.Web::getArg('c').'/'.Web::getArg('a').'/'.$filename) === false) {
+            if(count($tmp) > 1 && file_exists(ROOT.'/views/'.$filename) === true) {
+                include ROOT.'/views/'.$filename;
+            } else if(file_exists(ROOT.'/views/'.Web::getArg('c').'/'.Web::getArg('a').'/'.$filename) === true) {
+                include ROOT.'/views/'.Web::getArg('c').'/'.Web::getArg('a').'/'.$filename;
+            } else {
                 Controller::StaticError('INIT_ERRORS', 'ERROR_NO_VIEW_FILE');
             }
         }else if (Web::getArg('f') == 'path' && !empty($filename)) {
             if (DEBUG <= 0 && TEST_CASE !== true) {
                 header('Content-type: text/html; charset=utf-8');
             }
-            if((@include ROOT.'/views/'.$filename) === false) {
+            if((@include API_ROOT.'/views/'.$filename) === false) {
                 Controller::StaticError('INIT_ERRORS', 'ERROR_NO_VIEW_FILE');
             }
         }else {
@@ -438,7 +455,7 @@ class HCController{
         return true;
     }
     public function Error($cate, $error = '') {
-        Debug::ttt('HCController::Error("'.$cate.'", "'.$error.'")');
+        Debug::ttt('hc\mvc\Controller::Error("'.$cate.'", "'.$error.'")');
         if ($this->isError()) return false; // to make sure call only one time
 
         $this->output['result'] = 0;
@@ -490,6 +507,7 @@ class HCController{
         $this->Render();
 
         Debug::ttt('total');
+        self::log($this->output);
 
         exit;
 
@@ -497,19 +515,21 @@ class HCController{
     }
     public function getMessage($cate, $code, $value) {
         $message = $this->StaticGetMessageg($cate, $code);
-        $message = str_replace('#value#', $value, $message);
+        if (!is_array($value)) {
+            $message = str_replace('#value#', $value, $message);
+        }
         return $message;
     }
 
     public static function StaticGetMessageg($cate, $code) {
-        $ini_file = ROOT.'/lang/'.LANG.'/message.ini';
+        $ini_file = API_ROOT.'/lang/'.LANG.'/message.ini';
         $messages = parse_ini_file($ini_file);
         if (isset($messages[$code])) return $messages[$code];
         else return $code;
     }
 
     public static function StaticError($cate, $error = '') {
-        Debug::ttt('HCController::InitError("'.$cate.'", "'.$error.'")');
+        Debug::ttt('hc\mvc\Controller::InitError("'.$cate.'", "'.$error.'")');
 
         switch (OUTPUT_VERSION) {
             case '1.0.0':
@@ -517,7 +537,7 @@ class HCController{
                     'errors' => array(strtolower($cate) => $error));
                 break;
             default:
-                $error_msg = HCController::StaticGetMessageg($cate, $error);
+                $error_msg = Controller::StaticGetMessageg($cate, $error);
                 $output = array('result' => 0,
                     'errors' => array(
                         'code' => $error,
@@ -526,8 +546,9 @@ class HCController{
         }
 
         // Render
-        HCController::staticRender($output);
+        Controller::staticRender($output);
 
+        self::log($output);
         Debug::ttt('total');
 
         exit;
@@ -535,7 +556,7 @@ class HCController{
         return true;
     }
     public function isError() {
-        Debug::ttt('HCController::isError()');
+        Debug::ttt('hc\mvc\Controller::isError()');
 
         if (isset($this->output['result'])
             && $this->output['result'] == 0
@@ -552,7 +573,7 @@ class HCController{
     }
 
     public function add() {
-        Debug::ttt('HCController::add()');
+        Debug::ttt('hc\mvc\Controller::add()');
         $result = $this->model->insert();
         if ($result !== true) {
             $this->Error('DB_ERRORS', $result);
@@ -579,7 +600,7 @@ class HCController{
     }
 
     public function edit() {
-        Debug::ttt('HCController::edit()');
+        Debug::ttt('hc\mvc\Controller::edit()');
         $result = $this->model->update();
         if ($result !== true) {
             $this->Error('DB_ERRORS', $result);
@@ -590,7 +611,7 @@ class HCController{
         return true;
     }
     public function del() {
-        Debug::ttt('HCController::del()');
+        Debug::ttt('hc\mvc\Controller::del()');
         $result = $this->model->delete();
         if ($result !== true) {
             $this->Error('DB_ERRORS', $result);
@@ -602,7 +623,7 @@ class HCController{
     }
 
     public function get() {
-        Debug::ttt('HCController::get()');
+        Debug::ttt('hc\mvc\Controller::get()');
         $result = $this->model->select();
         if ($result !== true) {
             $this->Error('DB_ERRORS', $result);
@@ -622,21 +643,81 @@ class HCController{
         $this->Render();
         return true;
     }
-    public function recall($args = array()) {
-        Debug::ttt('HCController::Recall()');
-        $url = $this->getURLbyArgs($args);
-        $result = file_get_contents($url);
-        Debug::ppp($url);
-        return $result;
+    /*
+     $option = array(
+        'url'    => '',
+        'method' => 'GET'
+        'params' => {
+            'c' => '',
+            'a' => '',
+            'f' => 'JSON'
+        }
+     );
+     */
+    public function recall($option = array()) { // GET Call Only
+        Debug::ttt('hc\mvc\Controller::Recall()');
+
+        // getAPIURL
+        if (isset($option['url']) && !empty($option['url'])) {
+            $url = $option['url'].'/?';
+            unset($option['url']);
+        }else {
+            $url = API_HOME.'/?';
+        }
+
+        // getMethod
+        if (isset($option['method']) && strtoupper($option['method']) == 'POST') {
+            $method = 'POST';
+        }else {
+            $method = 'GET';
+        }
+
+        // getParams
+        if (isset($option['params']) && !empty($option['params'])) {
+            $params = $option['params'];
+        }else {
+            $params = array();
+        }
+
+        // mergeParam
+        if (!isset($params) || empty($params)) return '';
+        $merged_params = '';
+        foreach ($params as $key => $val) {
+            $merged_params .= $key.'='.$val.'&';
+        }
+        $merged_params = rtrim($merged_params, '&');
+
+        // sendRequest
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+        if (isset($params) && !empty($params)) {
+            curl_setopt($ch, CURLOPT_POST, count($params));
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $merged_params);
+        }
+        $response = curl_exec ($ch);
+
+        if (curl_errno($ch)) {
+            //print curl_error($ch);
+            return false;
+        } else {
+            curl_close($ch);
+            return $response;
+        }
     }
     public function Redirect($args = array()) {
-        Debug::ttt('HCController::Redirect()');
+        Debug::ttt('hc\mvc\Controller::Redirect()');
         $url = $this->getURLbyArgs($args);
         header('Location: '.$url) ;
     }
     public function getURLbyArgs($args = array()) {
-        Debug::ttt('HCController::getURLbyArgs()');
-        $url = HOME.'/?';
+        Debug::ttt('hc\mvc\Controller::getURLbyArgs($args)');
+        if (isset($args['API_HOME']) && !empty($args['API_HOME'])) {
+            $url = $args['API_HOME'].'/?';
+            unset($args['API_HOME']);
+        }else {
+            $url = API_HOME.'/?';
+        }
         foreach($args as $key => $val) {
             $url .= $key.'='.$val.'&';
         }
@@ -644,703 +725,136 @@ class HCController{
         return $url;
     }
 
-    public function wiki() {
-        Debug::ttt('Controller::wiki()');
-        $arr_fields = array();
-        foreach ($this->model->fields as $action => $config){
-            foreach ($config as $field => $item){
-                $arr_fields[$action][$field] = array_merge($item, $this->model->schema[$field]);
-            }
-        }
+    public static function log($output) {
+        if (USE_APILOG !== true) return false;
+        if (SERVICE !== SERVICE_LIVE) return false;
 
-        $table = '<style>table{border-collapse:collapse;}table,th, td{border: 1px solid black;}.data{text-align:center;}</style>';
-        $wikitable = '{| class="wikitable"<br>';
-        $table .= '<table>';
-        $wikitable .= '|-<br>';
-        $table .= '<tr>';
-        $table .= '<td>Actions&rarr;<br>Data&darr;</td>';
-        $wikitable .= '! Actions&rarr;&lt;br&gt;Data&darr;';
-        foreach($this->model->fields as $action => $config) {
-            $table .= '<td>'.$action.'</td>';
-            $wikitable .= '!!'.$action;
-        }
-        $table .= '</tr>';
-        $wikitable .= '<br>';
-
-        foreach($this->model->schema as $field => $item) {
-            $wikitable .= '|-<br>';
-            $table .= '<tr>';
-            $table .= '<td>'.$field.'</td>';
-            $wikitable .= '| '.$field;
-            foreach($this->model->fields as $action => $config) {
-                if (isset($config[$field]['required']) && $config[$field]['required'] === true) {
-                    $required = '●';
-                }else if (isset($config[$field]) && !isset($config[$field]['required']) || $config[$field]['required'] === false) {
-                    $required = '○';
-                }else {
-                    $required = '';
+        global $controller, $action;
+        if (!isset($output['result']) || $output['result'] == 0) {
+            $result = 0;
+            $error_code = $output['errors']['code'];
+            if (isset($output['errors']['fields']) && !empty($output['errors']['fields'])) {
+                $field_error = '';
+                foreach($output['errors']['fields'] as $field => $error) {
+                    if ($field_error != '') $field_error .= ',';
+                    $field_error .= $field.':'.$error['code'];
                 }
-                $table .= '<td class="data">'.$required.'</td>';
-                $wikitable .= '||'.$required;
+                $error_code = $error_code.'['.$field_error.']';
             }
-            $table .= '</tr>';
-            $wikitable .= '<br>';
+        }else {
+            $result = 1;
+            $error_code = '';
         }
-        $table .= '</table>';
-        $wikitable .= '|}';
+        $serialized = serialize($output);
+        if (function_exists('mb_strlen')) {
+            $data_size = mb_strlen($serialized, '8bit');
+        } else {
+            $data_size = strlen($serialized);
+        }
 
-        echo '<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>';
-        echo '<h1>'.$this->controller.'</h1>';
-        echo $table;
-        echo '<br>';
-        echo '(●: required, ○:optional)<br>';
-        echo $wikitable;
-
+        $data = array(
+            'controller'  => $controller,
+            'action'      => $action,
+            'result'      => $result,
+            'error_code'  => $error_code,
+            'data_size'   => $data_size
+        );
+        Log::sendLog($data);
     }
-
     public function ref() {
         Debug::ttt('Controller::ref()');
 
-        echo "<html>";
-        echo "<head>";
-        echo "<title>API Reference - ".ucfirst($this->controller)."</title>";
-        $indent = 15;
-        echo "
-        <style>
-        body{font-size: 12px;line-height: 12px;}
-        h1 {font-size: 18px;}
-        ul,ol {padding-left: ".($indent)."px;}
-        pre {margin: 0px;}
+        $default_args = array(
+            'c'=>'Controller',
+            'a'=>'Action',
+            'f'=>'Output format - json, jsonp, xml, html, path',
+            'v'=>'HTML Filename or Path - list.html or cms/list.html',
+            'cb'=>'Callback Function name (using only for jsonp format) - callback (default)',
+            's'=>'Start - 0(default) - taking "s" first',
+            'p'=>'Page - 1(default) - taking "s" first then "p"',
+            'l'=>'Limit of Rows',
+            'o'=>'Order by Field',
+            'd'=>'Direction - ASC, DESC',
+            'i'=>'Info(t:Total)'
+        );
+        $default_list_args = array('s','p','l','o','d','i');
 
-        h2 {font-size: 14px;padding-left: ".($indent)."px;}
-        .field_id {padding-left: ".($indent*3)."px;}
+        $arr_doc_action = explode(',',DOC_ACTIONS);
 
-        h3 {font-size: 12px;padding-left: ".($indent*2)."px;}
-        .h3 .field_id {padding-left: ".($indent*4)."px;}
-        .example {font-size: 11px;margin-left: ".($indent*2)."px;border: 1px dotted #000;padding: 10px;width: auto;}
+        $controller = array(
+            'name' => $this->controller,
+            'title' => strtoupper(PREFIX).ucfirst(CNAME),
+        );
 
-        .default_info {padding-left: ".($indent)."px;font-size: 14px;}
-        .point {color: #605ca8;font-weight: bold;}
-        .gray {color: #aaa;}
-        .desc {margin-left: 7px;}
-        .calltitle a{color: #4F81BD;text-decoration:none;}
-        .calltitle a.test {font-size:8px; color: #ccc; margin-left: 7px;}
-        </style>
-        ";
-        echo "</head>";
-        echo "<body>";
+        $actions = array();
+        foreach ($this->model->fields as $action => $action_fields){
+            if (in_array($action, $arr_doc_action)) continue;
 
-        // 1. Controller
-        echo '<h1>'.ucfirst($this->controller).'</h1>';
-
-        // 1. Contents
-        $arr_fields = array();
-        $contents = '';
-        foreach ($this->model->fields as $action => $config){
-            // Except Document Actions
-            $arr_doc_action = explode(',',DOC_ACTIONS);
-            if (in_array($action, $arr_doc_action)) {
-                continue;
-            }
-            $arr_action = explode('_',$action);
-            $calltitle = ucfirst($this->controller).'::';
+            // $action_title
+            $action_title = '';
+            $arr_action = explode('_', $action);
             for($i=0; $i<count($arr_action); $i++) {
-                $calltitle .= ucfirst($arr_action[$i]);
-            }
-            $contents .= '<a href="#'.$calltitle.'">'.$calltitle.'</a><br>';
-        }
-        echo $contents;
-
-        // 1-1. Field Properties
-        echo '<h2>Field Properties</h2>';
-        $this->RefFields($this->model->schema, $action);
-
-        $num = 0;
-        // Each Action
-        foreach ($this->model->fields as $action => $config){
-            // Except Document Actions
-            $arr_doc_action = explode(',',DOC_ACTIONS);
-            if (in_array($action, $arr_doc_action)) {
-                continue;
+                $action_title .= ucfirst($arr_action[$i]);
             }
 
-            $num++;
-            $arr_action = explode('_',$action);
-            $calltitle = ucfirst($this->controller).'::';
-            for($i=0; $i<count($arr_action); $i++) {
-                $calltitle .= ucfirst($arr_action[$i]);
+            // $api_title
+            $api_title = $controller['title'].'::'.$action_title;
+            $api_url = $controller['name'].'/'.$action;
+
+            // $desc
+            $desc = '';
+            if (isset($this->model->ofields[$action]['desc'])) {
+                $desc = $this->model->ofields[$action]['desc'];
             }
 
-            // 2. ControllerAction
-            echo '<h2 class="calltitle"><a href="#" name="'.$calltitle.'" class="black">'.$calltitle.'</a><a class="test" href="?c='.$this->controller.'&a=test#'.$calltitle.'">test</a></h2>';
-
-            // 2-1. Default Input Parameters
-            echo '<h3>Default Input Parameters</h3>';
-            echo '<div class="h3">';
-            echo '<ul class="field_id">';
-            $args = array(
-                'c'=>'Controller',
-                'a'=>'Action',
-                'f'=>'Output format - json, jsonp, xml, html, path',
-                'v'=>'View File Name or Path - list.html or cms/2.0/add.html',
-                'cb'=>'Callback Function name (using only for jsonp format) - callback (default)',
-                's'=>'Start - 0(default) - taking "s" first',
-                'p'=>'Page - 1(default) - taking "s" first then "p"',
-                'l'=>'Limit of Rows',
-                'o'=>'Order by Field',
-                'd'=>'Direction - ASC, DESC',
-                'i'=>'Info(t:Total)'
-            );
-            $arr_get_parameter = array('s','p','l','o','d','i');
-            foreach ($args as $field_id => $desc){
-                if (in_array($field_id, $arr_get_parameter) && strpos($action,'get') === false) {
+            // default fields
+            $fields = array();
+            foreach ($default_args as $field_id => $field_desc){
+                if (in_array($field_id, $default_list_args)
+                    && (!isset($this->model->ofields[$action]['list'])
+                    || $this->model->ofields[$action]['list'] !== TRUE))  {
                     continue;
-                }
-                echo '<li>'.$field_id.' <span class="desc">- '.$desc.'</span></li>';
-            }
-            echo '</ul>';
-            echo '</div>';
-
-            // 2-2. Fixed Input Parameters
-            echo '<h3>Fixed Input Parameters</h3>';
-            echo '<div class="h3">';
-            echo '<ul class="field_id">';
-            echo '<li>c='.$this->controller.'</li>';
-            echo '<li>a='.$action.'</li>';
-            echo '</ul>';
-            echo '</div>';
-
-            // 2-3. Additional Input Parameters
-            echo '<h3>Additional Input Parameters</h3>';
-            echo '<div class="h3">';
-            $this->RefFields($config, $action);
-            echo '</div>';
-
-            // 2-4. Input Examples
-            echo '<h3>Input Examples</h3>';
-            $input_example = array();
-            $input_example[0] = API_PROTOCOL.'://'.DOMAIN_LIVE.'/'.API_FOLDER.'/?c='.$this->controller.'&a='.$action;
-            foreach ($config as $field_id => $options){
-                if (isset($options['required']) && $options['required'] === TRUE) {
-                    $input_example[0] .= '&'.$field_id.'=value';
-                }
-            }
-            foreach ($config as $field_id => $options){
-                if (!isset($options['required']) || $options['required'] !== TRUE) {
-                    $input_example[] = $input_example[count($input_example)-1].'&'.$field_id.'=value';
-                }
-            }
-            echo '<div class="example">';
-            for ($i=0; $i<count($input_example); $i++){
-                echo '<a href="'.$input_example[$i].'">'.$input_example[$i].'</a><br>';
-            }
-            echo '</div>';
-
-
-            // 2-4. Output Parameters
-            echo '<h3>Output Parameters</h3>';
-            echo '<div class="h3">';
-            echo '<ul class="field_id">';
-            if (isset($this->model->ofields[$action])) {
-                foreach ($this->model->ofields[$action] as $field_id => $options){
-                    echo '<li>'.$field_id.'</li>';
-                }
-            }else {
-                echo '<li>Not defined</li>';
-            }
-            echo '</ul>';
-            echo '</div>';
-
-            // 2-4. Output Example
-            echo '<h3>Output Example</h3>';
-            $output_example =  '<div class="example">';
-            $output_example .=  'Array (<br>';
-            $output_example .=  '    [result] => 1,<br>';
-            /*$output_example .=  '    [result] => 1 <span class="gray">or 0</span>,<br>';
-            $output_example .=  '    <span class="gray">[errors] => Object (<br>';
-            $output_example .=  '        [code] => ERROR_NO_CONTROLLER_CLASS,<br>';
-            $output_example .=  '        [text] => You have to do something,<br>';
-            $output_example .=  '        [info] => Object (<br>';
-            $output_example .=  '            [info1] => info1value<br>';
-            $output_example .=  '        ),<br>';
-            $output_example .=  '        [fields] => Object (<br>';
-            $output_example .=  '            [field1] => Object (<br>';
-            $output_example .=  '                [code] => ERROR_REQUIRED,<br>';
-            $output_example .=  '                [text] => You have to do something<br>';
-            $output_example .=  '            ),<br>';
-            $output_example .=  '            [field2] => Object (<br>';
-            $output_example .=  '                [code] => ERROR_REQUIRED,<br>';
-            $output_example .=  '                [text] => You have to do something<br>';
-            $output_example .=  '            )<br>';
-            $output_example .=  '        )<br>';
-            $output_example .=  '    ),</span><br>';*/
-            $output_example .=  '    [data] => Array (<br>';
-            //$output_example .=  '        [info] => Object (<br>';
-            //$output_example .=  '            [total] => 1,<br>';
-            //$output_example .=  '        ),<br>';
-            $output_example .=  '        [items] => Array (<br>';
-            $output_example .=  '            [0] => Array (<br>';
-            if (isset($this->model->ofields[$action])) {
-                foreach ($this->model->ofields[$action] as $field_id => $options){
-                    $output_example .=  '                ['.$field_id.'] => value,<br>';
-                }
-            }else {
-                $output_example .=  '                Not defined<br>';
-            }
-            $output_example .=  '            )<br>';
-            $output_example .=  '        )<br>';
-            $output_example .=  '    )<br>';
-            $output_example .=  ')';
-            $output_example .=  '</div>';
-            echo str_replace('  ','&nbsp;&nbsp;',$output_example);
-        }
-
-        echo "</body>";
-        echo "</html>";
-    }
-
-    public function RefFields($config, $action='') {
-        Debug::ttt('Controller::RefFields($config, $action)');
-        $field_num = 0;
-        echo '<ul class="field_id">';
-        // Field List
-        foreach ($config as $field_id => $options){
-            if ($field_id == 'id' && strpos($action,'add') !== false) {
-                continue;
-            }
-            $field_num++;
-            echo '<li>'.$field_id.'</li>';
-            // Option List
-            echo '<ul class="options">';
-            foreach ($options as $option_id => $values){
-                switch ($option_id) {
-                    case 'field':
-                        echo '<li>Database Field Name: '.$values.'</li>';
-                        break;
-                    case 'operator':
-                        echo '<li>Filtering Operator: '.$values.'</li>';
-                        break;
-                    case 'sailthru_var':
-                        echo '<li>Sailthru Variable Name: '.$values.'</li>';
-                        break;
-                    case 'type':
-                        echo '<li>Type: '.$values.'</li>';
-                        break;
-                    case 'value':
-                        echo '<li>Value: '.$values.'</li>';
-                        break;
-                    case 'error':
-                        echo '<li>Error: '.$values.'</li>';
-                        break;
-                    case 'formatted':
-                        echo '<li>Formatted Value: '.$values.'</li>';
-                        break;
-                    case 'default':
-                        echo '<li>Default Value: '.$values.'</li>';
-                        break;
-                    case 'pk':
-                        if ($values === true) {
-                            echo '<li>Primary Key of Database Table</li>';
-                        }
-                        break;
-                    case 'autoinc':
-                        if ($values === true) {
-                            echo '<li>Auto Increasing Field</li>';
-                        }
-                        break;
-                    case 'required':
-                        if ($values === true) {
-                            echo '<li>Required Field</li>';
-                        }
-                        break;
-                    case 'value_from':
-                        if (isset($values) && !empty($values)) {
-                            echo '<li>If you don\'t pass the value, the value is copied from '.$values.'</li>';
-                        }
-                        break;
-                    case 'where':
-                        if ($values === true) {
-                            echo '<li>Using as Search Condition</li>';
-                        }
-                        break;
-                    case 'rules':
-                        echo '<li>Rules:';
-                        echo '<ul class="rules">';
-                        // Rule list
-                        foreach ($values as $rule_id => $rule_values){
-                            switch($rule_id) {
-                                case 'array':
-                                    echo '<li>The value must be Array type</li>';
-                                    break;
-                                case 'token':
-                                    echo '<li>Token Verification Required with '.$rule_values.'</li>';
-                                    break;
-                                case 'rgb_color':
-                                    if ($rule_values === true) {
-                                        echo '<li>The value must be RGB Color Format</li>';
-                                    }
-                                    break;
-                                case 'date':
-                                    if ($rule_values === true) {
-                                        echo '<li>The value must be Date Format (YYYY-MM-DD)</li>';
-                                    }
-                                    break;
-                                case 'date_mdy':
-                                    if ($rule_values === true) {
-                                        echo '<li>The value must be Date Format (MM-DD-YY)</li>';
-                                    }
-                                    break;
-                                case 'datetime':
-                                    if ($rule_values === true) {
-                                        echo '<li>The value must be DateTime Format (YYYY-MM-DD HH:MI:SS)</li>';
-                                    }
-                                    break;
-                                case 'url':
-                                    if ($rule_values === true) {
-                                        echo '<li>The value must be URL Format</li>';
-                                    }
-                                    break;
-                                case 'file':
-                                    if ($rule_values === true) {
-                                        echo '<li>The value must be File Type</li>';
-                                    }
-                                    break;
-                                case 'email':
-                                    if ($rule_values === true) {
-                                        echo '<li>The value must be E-Mail Format</li>';
-                                    }
-                                    break;
-                                case 'numeric':
-                                    if ($rule_values === true) {
-                                        echo '<li>The value must be Numeric</li>';
-                                    }
-                                    break;
-                                case 'length':
-                                    echo '<li>The value cannot be exceeded '.$rule_values.'</li>';
-                                    break;
-                                case 'max_length':
-                                    echo '<li>The max length of the value is '.$rule_values.'</li>';
-                                    break;
-                                case 'min_length':
-                                    echo '<li>The length of the value must be at least '.$rule_values.'</li>';
-                                    break;
-                                case 'admin':
-                                    echo '<li>The call is allowed to the admins only</li>';
-                                    break;
-                                case 'permission':
-                                    echo '<li>The call is allowed to the admins who has permission only</li>';
-                                    break;
-                                case 'owner':
-                                    echo '<li>The call is allowed to the admins who own only</li>';
-                                    break;
-                                case 'enum':
-                                    if (is_array($rule_values)) {
-                                        $enum_values = '';
-                                        for($i=0;$i<count($rule_values); $i++) {
-                                            if ($enum_values != '') $enum_values .= ', ';
-                                            $enum_values .= $rule_values[$i];
-                                        }
-                                        echo '<li>The value must be one of '.$enum_values.'</li>';
-                                    }
-                                    break;
-                                default:
-                                    echo '<li>'.$rule_id.': '.$rule_values.'</li>';
-                                    break;
-                            }
-                        }// Rule List
-                        echo '</li>';
-                        echo '</ul>'; // Rules Close
-                        break;
-                    default:
-                        echo '<li>'.$option_id.': '.$values.'</li>';
-                        break;
-                }
-            }// Option List
-            echo '</ul>'; // Option Close
-        }
-        echo '</ul>'; // Field Close
-    }
-
-    public function test() {
-        Debug::ttt('Controller::test()');
-
-        echo '<html>';
-        echo '<head>';
-        echo '<title>API Test - '.ucfirst($this->controller).'</title>';
-        echo "
-        <style>
-        body{font-size: 12px;line-height: 12px;}
-        div {vertical-align: top;}
-        .label {width: 100px;}
-        .label,.input,.note{display:inline-block;}
-        .note {font-size: 12px;display:none;}
-        .input input {width: 300px;}
-        .submit {font-size: 24px;margin-left: 15px;}
-        .calltitle a{color: #4F81BD;text-decoration:none;}
-        .calltitle a.ref {font-size:8px; color: #ccc;margin-left:7px;}
-        h1 {font-size:18px;}
-        h2 {font-size:14px;}
-        .boldedbox {background-color: #FFFFE2}
-        .boldedlabel {font-weight: bold; color:#660033;font-size:13px;}
-        </style>
-        ";
-        echo '</head>';
-        echo '<body>';
-
-        // 1. Controller
-        echo '<h1>'.ucfirst($this->controller).'</h1>';
-
-
-        // 1. Merge Schema and Fields
-        $arr_fields = array();
-        $contents = '';
-        foreach ($this->model->fields as $action => $config){
-            // Except Document Actions
-            $arr_doc_action = explode(',',DOC_ACTIONS);
-            if (in_array($action, $arr_doc_action)) {
-                continue;
-            }
-            foreach ($config as $field => $item){
-                $arr_fields[$action][$field] = array_merge($item, $this->model->schema[$field]);
-            }
-            $arr_action = explode('_',$action);
-            $calltitle = ucfirst($this->controller).'::';
-            for($i=0; $i<count($arr_action); $i++) {
-                $calltitle .= ucfirst($arr_action[$i]);
-            }
-            $contents .= '<a href="#'.$calltitle.'">'.$calltitle.'</a><br>';
-        }
-        echo $contents.'<br>';
-
-        // 2. Loop Actions
-        foreach ($arr_fields as $action => $config){
-            // Except Document Actions
-            $arr_doc_action = explode(',',DOC_ACTIONS);
-            if (in_array($action, $arr_doc_action)) {
-                continue;
-            }
-
-            $arr_action = explode('_',$action);
-            $calltitle = ucfirst($this->controller).'::';
-            for($i=0; $i<count($arr_action); $i++) {
-                $calltitle .= ucfirst($arr_action[$i]);
-            }
-
-            $is_file = false;
-            foreach ($config as $field_id => $options){
-                if ($options['rules']['file'] === true) {
-                    $is_file = true;
-                }
-            }
-            if ($is_file === true) {
-                echo '<form method="post" enctype="multipart/form-data">';
-            }else {
-                echo '<form>';
-            }
-            echo '<h2 class="calltitle"><a href="#" name="'.$calltitle.'">'.$calltitle.'</a><a class="ref" href="?c='.$this->controller.'&a=ref#'.$calltitle.'">ref</a></h2>';
-            echo '<ul>';
-
-            // 3. Loop Default Parameters
-            $args = array(
-                'c'=>'Controller',
-                'a'=>'Action',
-                'f'=>'Output format - json, jsonp, xml, html, path',
-                'v'=>'View File Name or Path - list.html or cms/2.0/add.html',
-                'cb'=>'Callback Function name (using only for jsonp format) - callback (default)',
-                's'=>'Start - 0(default) - taking "s" first',
-                'p'=>'Page - 1(default) - taking "s" first then "p"',
-                'l'=>'Limit of Rows',
-                'o'=>'Order by Field',
-                'd'=>'Direction - ASC, DESC',
-                'i'=>'Info(t:Total)'
-            );
-            $arr_get_parameter = array('s','p','l','o','d','t');
-            foreach ($args as $field_id => $note){
-                $value='';
-                if ($field_id == 'a') {
-                    $value = $action;
-                }else if ($field_id == 'l') {
-                    //$value = '10';
-                }else if ($field_id == 'f') {
-                    $value = 'path';
-                }else if ($field_id == 'v') {
-                    $value = 'cms/list.html';
-                }else if (isset($this->args[$field_id])) {
-                    $value = $this->args[$field_id];
-                }
-                if (in_array($field_id, $arr_get_parameter) && strpos($action,'get') === false) {
-                    continue;
-                }
-                echo '    <li>';
-                echo '    <div class="label">'.$field_id.'</div> <div class="input"><input type="text" name="'.$field_id.'" value="'.$value.'"/></div> <div class="note">'.$note.'</div>';
-                echo '    </li>';
-            }
-
-            // 4. Loop Config
-            foreach ($config as $field_id => $options){
-                if ($field_id == 'id' && strpos($action,'add') !== false) {
-                    continue;
-                }
-
-                $note = '';
-                // 5. Loop Options
-                foreach ($options as $option_id => $values){
-                    switch ($option_id) {
-                        case 'field':
-                            $note .= 'Database Field Name: '.$values.'<br>';
-                            break;
-                        case 'operator':
-                            $note .= 'Filtering Operator: '.$values.'<br>';
-                            break;
-                        case 'sailthru_var':
-                            $note .= 'Sailthru Variable Name: '.$values.'<br>';
-                            break;
-                        case 'type':
-                            $note .= 'Type: '.$values.'<br>';
-                            break;
-                        case 'value':
-                            $note .= 'Value: '.$values.'<br>';
-                            break;
-                        case 'error':
-                            $note .= 'Error: '.$values.'<br>';
-                            break;
-                        case 'formatted':
-                            $note .= 'Formatted Value: '.$values.'<br>';
-                            break;
-                        case 'default':
-                            $note .= 'Default Value: '.$values.'<br>';
-                            break;
-                        case 'pk':
-                            if ($values === true) {
-                                $note .= 'Primary Key of Database Table<br>';
-                            }
-                            break;
-                        case 'autoinc':
-                            if ($values === true) {
-                                $note .= 'Auto Increasing Field<br>';
-                            }
-                            break;
-                        case 'required':
-                            if ($values === true) {
-                                $note .= 'Required Field<br>';
-                            }
-                            break;
-                        case 'value_from':
-                            if (isset($values) && !empty($values)) {
-                                $note .= 'If you don\'t pass the value, the value is copied from '.$values.'<br>';
-                            }
-                            break;
-                        case 'where':
-                            if ($values === true) {
-                                $note .= 'Using as Search Condition<br>';
-                            }
-                            break;
-                        case 'rules':
-                            $note .= 'Rules:';
-                            // 6. Loop Rules
-                            foreach ($values as $rule_id => $rule_values){
-                                switch($rule_id) {
-                                    case 'token':
-                                        $note .= 'Token Verification Required with '.$rule_values.'<br>';
-                                        break;
-                                    case 'rgb_color':
-                                        if ($rule_values === true) {
-                                            $note .= 'The value must be RGB Color Format<br>';
-                                        }
-                                        break;
-                                    case 'date':
-                                        if ($rule_values === true) {
-                                            $note .= 'The value must be Date Format (YYYY-MM-DD)<br>';
-                                        }
-                                        break;
-                                    case 'date_mdy':
-                                        if ($rule_values === true) {
-                                            $note .= 'The value must be Date Format (MM-DD-YY)<br>';
-                                        }
-                                        break;
-                                    case 'datetime':
-                                        if ($rule_values === true) {
-                                            $note .= 'The value must be DateTime Format (YYYY-MM-DD HH:MI:SS)<br>';
-                                        }
-                                        break;
-                                    case 'url':
-                                        if ($rule_values === true) {
-                                            $note .= 'The value must be URL Format<br>';
-                                        }
-                                        break;
-                                    case 'file':
-                                        if ($rule_values === true) {
-                                            $note .= 'The value must be File Type<br>';
-                                        }
-                                        break;
-                                    case 'email':
-                                        if ($rule_values === true) {
-                                            $note .= 'The value must be E-Mail Format<br>';
-                                        }
-                                        break;
-                                    case 'numeric':
-                                        if ($rule_values === true) {
-                                            $note .= 'The value must be Numeric<br>';
-                                        }
-                                        break;
-                                    case 'length':
-                                        $note .= 'The value cannot be exceeded '.$rule_values.'<br>';
-                                        break;
-                                    case 'max_length':
-                                        $note .= 'The max length of the value is '.$rule_values.'<br>';
-                                        break;
-                                    case 'min_length':
-                                        $note .= 'The length of the value must be at least '.$rule_values.'<br>';
-                                        break;
-                                    case 'enum':
-                                        if (is_array($rule_values)) {
-                                            $enum_values = '';
-                                            for($i=0;$i<count($rule_values); $i++) {
-                                                if ($enum_values != '') $enum_values .= ', ';
-                                                $enum_values .= $rule_values[$i];
-                                            }
-                                            $note .= 'The value must be one of '.$enum_values.'<br>';
-                                        }
-                                        break;
-                                    default:
-                                        $note .= ''.$rule_id.': '.$rule_values.'<br>';
-                                        break;
-                                }
-                            }// Rule
-                            break;
-                        default:
-                            $note .= ''.$option_id.': '.$values.'<br>';
-                            break;
-                    }
-                }// Options Looping End
-                $value='';
-                if (isset($this->args[$field_id])) {
-                    $value = $this->args[$field_id];
-                }
-                echo '    <li>';
-                echo '    <div class="label boldedlabel">'.$field_id.'</div> <div class="input">';
-                if ($options['rules']['file'] === true) {
-                    echo '<input type="file" name="'.$field_id.'" value="'.$value.'" class="boldedbox"/>';
                 }else {
-                    echo '<input type="text" name="'.$field_id.'" value="'.$value.'" class="boldedbox"/>';
+                    $fields[$field_id] = array(
+                        'api_default_field' => true,
+                        'desc'              => $field_desc
+                    );
                 }
-                echo '</div> <div class="note">'.$note.'</div>';
+            }
 
-                echo '    </li>';
-            } // Config Looping End
+            // field and schema into the default field
+            foreach ($action_fields as $field_id => $options){
+                if (!isset($fields[$field_id])) $fields[$field_id] = array();
+                // field
+                if (isset($options)) {
+                    $fields[$field_id] = array_merge($fields[$field_id], $options);
+                }
+                // schema
+                if (isset($this->model->schema[$field_id])) {
+                    $fields[$field_id] = array_merge($fields[$field_id], $this->model->schema[$field_id]);
+                }
+            }
 
-            // Debug
-            echo '    <li>';
-            echo '    <div class="label">debug</div> <div class="input"><input type="text" name="debug" value="ye"/></div> <div class="note"></div>';
-            echo '    </li>';
-            echo '</ul>';
-            echo '<input type="submit" class="submit" value="Submit" /><br><br><br>';
-            echo '</form>';
-        } // Actions Looping End
-        echo '</body>';
-        echo '</html>';
+            $actions[$action] = array(
+                'api_title'    => $api_title,
+                'api_url'      => $api_url,
+                'name'         => $action,
+                'title'        => $action_title,
+                'desc'         => $desc,
+                'fields'       => $fields,
+            );
+        }
+
+        $this->output['info']['controller'] = $controller;
+        $this->output['info']['actions'] = $actions;
+        $this->output['info']['token'] = $this->model->config['token']['value'];
+        $this->output['info']['referer'] = $this->model->config['referer']['value'];
+        $this->output['info']['userid'] = $this->model->config['userid']['value'];
+
+        $this->output['result'] = 1;
+        $this->Render();
+        return true;
     }
-
 
 }
 ?>

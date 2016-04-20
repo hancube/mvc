@@ -1,0 +1,5 @@
+RewriteEngine On
+RewriteRule ^test/(.*) test/$1 [L,QSA]
+RewriteRule ^ref/([^\.]+)\.([^/]+)/?.* ref/$1.$2 [L,QSA]
+RewriteRule ^ref/([^/]+)/?.* ref/index.php?c=$1 [L,QSA]
+RewriteRule ^([^/]+)/([^/]+)/?.* index.php?c=$1&a=$2 [L,QSA]
